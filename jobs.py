@@ -79,6 +79,35 @@ BIG_BOARDS = ("linkedin", "indeed", "glassdoor", "ziprecruiter", "monster", "sim
               "careerbuilder", "builtin", "wellfound", "talent.com", "jooble", "adzuna", "lensa", "bebee")
 
 
+NYC_WORDS = {"nyc", "new york", "new york city", "new york ny", "ny", "manhattan", "brooklyn", "queens",
+             "bronx", "the bronx", "staten island", "long island city", "lic", "jamaica"}
+STATES = set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC "
+             "ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split())
+
+
+def parse_locations(text, limit=3):
+    """'New york, NY, queens, manhattan, brooklyn, NYC' -> ['New York, NY'].
+    'Jersey City, NJ; Remote' -> ['Jersey City, NJ', 'Remote']. Separate places with ; or commas."""
+    out = []
+    for chunk in re.split(r"[;|/]|\bor\b", text or "", flags=re.I):
+        parts = [p.strip() for p in chunk.split(",") if p.strip()]
+        merged = []
+        for p in parts:   # glue state abbreviations back onto their city: "Jersey City", "NJ"
+            if p.upper() in STATES and merged and merged[-1].upper() not in STATES and "," not in merged[-1]:
+                merged[-1] = f"{merged[-1]}, {p.upper()}"
+            else:
+                merged.append(p)
+        for m in merged:
+            key = re.sub(r"[^a-z ]", "", m.lower()).strip()
+            if key in NYC_WORDS or key.replace(" ny", "") in NYC_WORDS:
+                m = "New York, NY"
+            elif key in ("remote", "anywhere", "work from home", "wfh"):
+                m = "Remote"
+            if m.lower() not in [o.lower() for o in out]:
+                out.append(m)
+    return out[:limit] or [""]
+
+
 def _best_apply(options):
     """From a job's 'Apply on …' links pick: an ATS form we can fill > the company's own site > anything."""
     links = [o for o in options if o.get("link")]
@@ -105,9 +134,8 @@ def google_jobs(query, location, api_key, pages=1, log=print):
     """Google Jobs (which lists LinkedIn, Indeed, Glassdoor, ZipRecruiter and company sites) via SerpApi."""
     token = None
     for _ in range(max(1, pages)):
-        params = {"engine": "google_jobs", "q": query, "api_key": api_key, "hl": "en", "gl": "us"}
-        if location:
-            params["location"] = location
+        q = query if not location else (f"{query} remote" if location == "Remote" else f"{query} in {location}")
+        params = {"engine": "google_jobs", "q": q, "api_key": api_key, "hl": "en", "gl": "us"}
         if token:
             params["next_page_token"] = token
         r = requests.get("https://serpapi.com/search.json", params=params, headers=UA, timeout=60)
@@ -139,9 +167,9 @@ def google_jobs(query, location, api_key, pages=1, log=print):
 def adzuna(query, location, app_id, app_key, pages=1, max_days_old=14, log=print):
     """Adzuna job search (collects listings from many US job boards)."""
     for page in range(1, max(1, pages) + 1):
-        params = {"app_id": app_id, "app_key": app_key, "what": query, "results_per_page": 50,
-                  "max_days_old": max_days_old, "content-type": "application/json"}
-        if location:
+        params = {"app_id": app_id, "app_key": app_key, "what": query + (" remote" if location == "Remote" else ""),
+                  "results_per_page": 50, "max_days_old": max_days_old, "content-type": "application/json"}
+        if location and location != "Remote":
             params["where"] = location
         r = requests.get(f"https://api.adzuna.com/v1/api/jobs/us/search/{page}", params=params,
                          headers=UA, timeout=60)
@@ -204,7 +232,10 @@ def discover(config, log=print, keys=None):
     srch = config["search"]
     src = srch.get("sources", {})
     queries = srch.get("queries") or srch["title_keywords"][:3]
-    where = srch.get("location", "")
+    places = parse_locations(srch.get("location", ""))
+    if any(places):
+        log(f"  Searching in: {', '.join(p or 'anywhere' for p in places)}")
+    config.setdefault("_bad_boards", [])
     out = []
 
     if src.get("google", True) and not keys.get("serpapi_key"):
@@ -213,22 +244,26 @@ def discover(config, log=print, keys=None):
         log("  Adzuna: skipped, no Adzuna keys saved")
     if src.get("google", True) and keys.get("serpapi_key"):
         for q in queries:
-            try:
-                found = [j for j in google_jobs(q, where, keys["serpapi_key"], srch.get("google_pages", 1), log)
-                         if not _excluded(j.title, srch)]
-                log(f"  Google Jobs '{q}': {len(found)} jobs")
-                out.extend(found)
-            except Exception as e:  # noqa: BLE001
-                log(f"  ! Google Jobs '{q}': {e}")
+            for where in places:
+                tag = f"'{q}'" + (f" in {where}" if where else "")
+                try:
+                    found = [j for j in google_jobs(q, where, keys["serpapi_key"], srch.get("google_pages", 1), log)
+                             if not _excluded(j.title, srch)]
+                    log(f"  Google Jobs {tag}: {len(found)} jobs")
+                    out.extend(found)
+                except Exception as e:  # noqa: BLE001
+                    log(f"  ! Google Jobs {tag}: {e}")
     if src.get("adzuna", True) and keys.get("adzuna_app_id") and keys.get("adzuna_app_key"):
         for q in queries:
-            try:
-                found = [j for j in adzuna(q, where, keys["adzuna_app_id"], keys["adzuna_app_key"],
-                                           srch.get("adzuna_pages", 1), log=log) if not _excluded(j.title, srch)]
-                log(f"  Adzuna '{q}': {len(found)} jobs")
-                out.extend(found)
-            except Exception as e:  # noqa: BLE001
-                log(f"  ! Adzuna '{q}': {e}")
+            for where in places:
+                tag = f"'{q}'" + (f" in {where}" if where else "")
+                try:
+                    found = [j for j in adzuna(q, where, keys["adzuna_app_id"], keys["adzuna_app_key"],
+                                               srch.get("adzuna_pages", 1), log=log) if not _excluded(j.title, srch)]
+                    log(f"  Adzuna {tag}: {len(found)} jobs")
+                    out.extend(found)
+                except Exception as e:  # noqa: BLE001
+                    log(f"  ! Adzuna {tag}: {e}")
     if not src.get("company_boards", True):
         return _dedupe(out)
     for source, slugs in config["boards"].items():
@@ -237,7 +272,8 @@ def discover(config, log=print, keys=None):
                 jobs = list(FETCHERS[source](slug))
             except Exception as e:  # noqa: BLE001
                 if "404" in str(e):
-                    log(f"  ! {source}/{slug}: no {source.title()} job board with that name. Remove it in Settings → Job search.")
+                    config["_bad_boards"].append((source, slug))
+                    log(f"  ! {source}/{slug}: no {source.title()} job board with that name, so it was removed from your list.")
                 else:
                     log(f"  ! {source}/{slug}: {e}")
                 continue

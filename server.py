@@ -15,7 +15,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import updater
 from importer import finalize, import_resume
-from jobs import Job, discover, fetch_job, full_description, manual_job, parse_job_url
+from jobs import Job, discover, fetch_job, full_description, manual_job, parse_job_url, parse_locations
 from render import render_docx, render_pdf_one_page
 from tailor import score, tailor
 
@@ -379,7 +379,8 @@ def get_settings():
     k = load_key()
     sec = load_secrets()
     return jsonify({"config": load_cfg(), "api_key_set": bool(k), "api_key_hint": ("…" + k[-4:]) if k else "",
-                    "sources": {n: ("…" + sec[n][-4:]) if sec.get(n) else "" for n in SOURCE_KEYS}})
+                    "sources": {n: ("…" + sec[n][-4:]) if sec.get(n) else "" for n in SOURCE_KEYS},
+                    "places": [p for p in parse_locations((load_cfg().get("search") or {}).get("location", "")) if p]})
 
 
 @app.put("/api/settings")
@@ -605,6 +606,13 @@ def start_search():
         search.update(running=True, log=[], results=[], jobs={})
         try:
             found = discover(cfg, log=lambda m: search["log"].append(m.strip()), keys=load_secrets())
+            bad = cfg.pop("_bad_boards", [])
+            if bad:   # company names that don't exist on that job site: drop them for next time
+                saved = load_cfg()
+                for source, slug in bad:
+                    if slug in (saved.get("boards", {}).get(source) or []):
+                        saved["boards"][source].remove(slug)
+                write_yaml(CONFIG, saved)
             res = []
             for j in found:
                 s, matched, missing = score(j, profile, cfg["search"])

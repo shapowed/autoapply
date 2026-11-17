@@ -1,4 +1,4 @@
 {
-  "version": "1.1.0",
-  "notes": "AutoApply now updates itself. Future changes arrive here automatically: no more downloading."
+  "version": "1.1.1",
+  "notes": "Find jobs: you can now list several places in Where (e.g. \"New York, NY; Remote\"), and NYC boroughs are understood. Company names that don't exist get removed from your list automatically."
 }

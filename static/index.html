@@ -189,7 +189,7 @@ a.btn{color:var(--ink)}
     <div class="card">
       <div class="grid2" style="grid-template-columns:2fr 1fr">
         <div><label class="f" style="margin-top:0">What <small>(comma separated: each is one search)</small></label><input type="text" id="fWhat" placeholder="IT Support, Help Desk"></div>
-        <div><label class="f" style="margin-top:0">Where</label><input type="text" id="fWhere" placeholder="New York, NY or Remote"></div>
+        <div><label class="f" style="margin-top:0">Where <small>(up to 3, separate with ;)</small></label><input type="text" id="fWhere" placeholder="New York, NY; Remote"></div>
       </div>
       <div class="row" style="margin-top:14px">
         <button class="btn primary" id="searchBtn">Search now</button>
@@ -399,7 +399,7 @@ $("#searchBtn").onclick = async () => {
     if (q.length) c.search.queries = q;
     c.search.location = $("#fWhere").value.trim();
     await api("/api/settings", {method: "PUT", json: {config: c}});
-    await api("/api/search", {method: "POST"}); pollSearch();
+    await api("/api/search", {method: "POST"}); pollSearch(); initFind();
   } catch (e) { toast(e.message); }
 };
 async function initFind() {
@@ -413,7 +413,8 @@ async function initFind() {
   let note = "Searching: " + on.join(" · ");
   if (off.length && !state.is_remote) note += ` &nbsp;·&nbsp; <a href="#" data-go="settings">Add keys</a> to also search ${off.join(" and ")}.`;
   if (k.serpapi_key) {
-    const q = (c.queries || []).length * (c.google_pages || 1);
+    const q = (c.queries || []).length * Math.max(1, (s.places || []).length) * (c.google_pages || 1);
+    if ((s.places || []).length) note += `<br>Searching in: <b>${s.places.map(esc).join("</b>, <b>")}</b>.`;
     note += `<br>Each search uses ${q} of your Google Jobs searches.`;
     api("/api/sources/usage").then(u => { if (u.google_left != null) $("#srcNote").innerHTML += ` <b>${u.google_left}</b> left this month.`; }).catch(() => {});
   }
