@@ -197,6 +197,61 @@ def add_skills(profile, keywords, note="added by you"):
     return added
 
 
+def list_changes(master, tailored):
+    """What tailoring changed: reworded bullets/summary (before -> after) and which jobs' bullets moved."""
+    orig = {b["id"]: b["text"] for e in master.get("experience", []) for b in e.get("bullets", [])}
+    changes, reordered = [], []
+    if tailored.get("summary", "").strip() != master.get("summary", "").strip():
+        changes.append({"id": "summary", "where": "Summary", "before": master.get("summary", ""), "after": tailored["summary"]})
+    master_order = {e.get("id"): [b["id"] for b in e.get("bullets", [])] for e in master.get("experience", [])}
+    for e in tailored.get("experience", []):
+        ids = [b["id"] for b in e.get("bullets", [])]
+        if master_order.get(e.get("id")) and ids != master_order[e.get("id")]:
+            reordered.append({"where": e.get("company", ""), "top": e["bullets"][0]["text"][:90]})
+        for b in e.get("bullets", []):
+            if b["id"] in orig and b["text"].strip() != orig[b["id"]].strip():
+                changes.append({"id": b["id"], "where": e.get("company", ""), "before": orig[b["id"]], "after": b["text"]})
+    return changes, reordered
+
+
+def render_with(tailored, master, rejected, pdf_path, docx_path):
+    """Render the tailored resume, putting back the original wording for any change the person undid."""
+    import copy
+    t = copy.deepcopy(tailored)
+    orig = {b["id"]: b["text"] for e in master.get("experience", []) for b in e.get("bullets", [])}
+    if "summary" in rejected:
+        t["summary"] = master.get("summary", "")
+    for e in t.get("experience", []):
+        for b in e.get("bullets", []):
+            if b["id"] in rejected and b["id"] in orig:
+                b["text"] = orig[b["id"]]
+    pdf, size = render_pdf_one_page(t, pdf_path)
+    render_docx(t, docx_path, size)
+
+
+@app.post("/api/jobs/<jid>/changes")
+def set_changes(jid):
+    """Keep or undo individual rewordings without re-tailoring (so the other changes don't shift)."""
+    r = load_db().get(jid)
+    if not r or not r.get("tailored"):
+        return err("Re-tailor this job first.", 404)
+    ids = {c["id"] for c in r.get("changes") or []}
+    rejected = set((request.get_json() or {}).get("rejected") or []) & ids
+    profile = load_profile()
+    if r.get("extra_skills"):
+        import copy
+        profile = copy.deepcopy(profile)
+        add_skills(profile, r["extra_skills"], note="this job only")
+    render_with(r["tailored"], profile, rejected, r["pdf_path"], r["docx_path"])
+    r.update(rejected_changes=sorted(rejected), changes=[dict(c, kept=c["id"] not in rejected) for c in r["changes"]],
+             updated=dt.datetime.now().isoformat(timespec="seconds"))
+    with lock:
+        db = load_db()
+        db[jid] = r
+        save_db(db)
+    return jsonify(r)
+
+
 def make_resume(job, extra_skills=None):
     profile, cfg = load_profile(), load_cfg()
     load_key()
@@ -212,14 +267,17 @@ def make_resume(job, extra_skills=None):
     os.makedirs(folder, exist_ok=True)
     pdf_path = os.path.join(folder, resume_filename(profile, "pdf"))
     docx_path = os.path.join(folder, resume_filename(profile, "docx"))
-    pdf, size = render_pdf_one_page(tailored, pdf_path)
-    render_docx(tailored, docx_path, size)
+    changes, reordered = list_changes(profile, tailored)
+    rejected = set(db_prev.get("rejected_changes") or [])
+    render_with(tailored, profile, rejected, pdf_path, docx_path)
     base = os.path.splitext(os.path.basename(pdf_path))[0]
     jid = jid_for(job)
     db = load_db()
     prev = db.get(jid, {})
     rec = {**asdict(job), "id": jid, "score": s, "matched": matched[:25], "missing": missing[:25],
            "offer": offerable(missing, load_profile() or {})[:15], "extra_skills": extra,
+           "changes": [dict(c, kept=c["id"] not in rejected) for c in changes], "reordered": reordered,
+           "rejected_changes": sorted(rejected & {c["id"] for c in changes}), "tailored": tailored,
            "method": method, "pdf": base + ".pdf", "docx": base + ".docx",
            "pdf_path": pdf_path, "docx_path": docx_path, "folder": folder,
            "can_apply": job.source in ("greenhouse", "lever", "ashby", "workday"),

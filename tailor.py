@@ -134,6 +134,87 @@ def rule_tailor(profile, job):
     return p
 
 
+# ---------------------------------------------------------------- rule-based rewording (no API key needed)
+# Groups of verbs that mean the same thing on a resume: (present, past)
+VERB_GROUPS = [
+    [("Troubleshoot", "Troubleshot"), ("Diagnose", "Diagnosed")],   # never "Resolve": that claims a fix
+    [("Support", "Supported"), ("Assist", "Assisted")],
+    [("Manage", "Managed"), ("Administer", "Administered"), ("Maintain", "Maintained"), ("Oversee", "Oversaw")],
+    [("Deploy", "Deployed"), ("Install", "Installed"), ("Implement", "Implemented")],
+    [("Log", "Logged"), ("Track", "Tracked"), ("Document", "Documented")],
+    [("Handle", "Handled"), ("Manage", "Managed"), ("Support", "Supported")],
+    [("Use", "Used"), ("Utilize", "Utilized"), ("Leverage", "Leveraged")],
+    [("Perform", "Performed"), ("Conduct", "Conducted")],
+]
+
+
+def _verb_forms(present, past):
+    p = present.lower()
+    ing = (p[:-1] if p.endswith("e") and not p.endswith("ee") else p + ("g" if p in ("log",) else "")) + "ing"
+    return {p, past.lower(), p + "s", ing}
+
+
+def _jd_count(jd, present, past):
+    return sum(len(re.findall(r"\b" + re.escape(f) + r"\b", jd)) for f in _verb_forms(present, past))
+
+
+def _swap_verb(text, jd):
+    """'Handle enterprise…' -> 'Manage enterprise…' when the posting says 'manage' and never 'handle'."""
+    for group in VERB_GROUPS:
+        for present, past in group:
+            for form, is_past in ((present, False), (past, True)):
+                if re.match(re.escape(form) + r"\b", text):
+                    cur = _jd_count(jd, present, past)
+                    best = max(group, key=lambda v: _jd_count(jd, *v))
+                    if best[0] != present and _jd_count(jd, *best) >= max(2, cur + 1):
+                        return (best[1] if is_past else best[0]) + text[len(form):]
+                    return text
+    return text
+
+
+def _mirror_in_bullet(text, jd_term_counts, profile):
+    """Write the job's name for a tool you already mention: 'ServiceNow' -> 'ServiceNow (ITSM)'."""
+    t = norm(text)
+    for term in sorted(jd_term_counts, key=lambda k: -jd_term_counts[k]):
+        if len(term) < 3 or has_term(term, t):
+            continue
+        for items in profile["skills"].values():
+            for sk in items:
+                if sk.get("confidence", "high") != "high":
+                    continue
+                if term not in [norm(a) for a in sk.get("aliases", [])]:
+                    continue
+                base = sk["name"].split(" (")[0]
+                m = re.search(r"\b" + re.escape(base) + r"\b", text, re.I)
+                if not m or text[m.end():m.end() + 2] == " (":
+                    continue
+                label = next(a for a in sk["aliases"] if norm(a) == term)
+                label = label.upper() if len(label) <= 4 else label
+                return text[:m.end()] + f" ({label})" + text[m.end():]
+    return text
+
+
+def reword_rules(p, job, master, limit=6):
+    """Light, meaning-preserving rewording: the posting's verbs and names for things you already describe."""
+    jd = norm(job.title + " " + job.description)
+    terms = jd_terms(jd)
+    corpus = profile_corpus(master)
+    low = [norm(n) for items in master["skills"].values() for sk in items
+           if sk.get("confidence") == "low" for n in [sk["name"]] + sk.get("aliases", [])]
+    changed = 0
+    for exp in p["experience"]:
+        for b in exp["bullets"]:
+            if changed >= limit:
+                return p
+            new = _mirror_in_bullet(_swap_verb(b["text"], jd), terms, master)
+            if re.search(r"\bend[- ]users?\b", jd) and not re.search(r"\bend[- ]users?\b", new, re.I):
+                new = re.sub(r"(?<!end )\busers\b", "end users", new, count=1)
+            if new != b["text"] and validate_rewrite(b["text"], new, corpus, low):
+                b["text"] = new
+                changed += 1
+    return p
+
+
 # ---------------------------------------------------------------- Claude tailoring
 PROMPT = """You are tailoring a resume to a job description. You must be strictly truthful.
 
@@ -146,8 +227,8 @@ JOB: {title} at {company}
 Return ONLY JSON:
 {{
  "summary": "3-4 sentence summary, same tone/length as the original, emphasising what this job wants",
- "bullet_order": {{"<job id>": ["<bullet id>", ...]}},      // every bullet id exactly once
- "bullet_rewrites": {{"<bullet id>": "reworded text"}},      // optional, only where it helps
+ "bullet_order": {{"<job id>": ["<bullet id>", ...]}},      // every bullet id exactly once, most relevant first
+ "bullet_rewrites": {{"<bullet id>": "reworded text"}},      // reword the bullets that matter most for this job
  "skill_order": {{"<category>": ["<exact skill name>", ...]}} // every skill exactly once
 }}
 
@@ -158,6 +239,12 @@ Hard rules:
 - Keep each rewrite within ±20% of the original length. Keep the original verb tense.
 - Skills with confidence "low" must not appear in the summary or any bullet.
 - Do not mention the company name or job title in the summary.
+
+How to reword (for up to 6 bullets that relate to the job):
+- Lead with the part of the bullet this job cares about most.
+- Use the job description's exact words for things the bullet already describes (its verbs, its
+  names for tools and processes), so an applicant tracking system matches them.
+- Keep every fact: same tools, same scope, same numbers, same outcome. Change emphasis, not substance.
 """
 
 
@@ -280,12 +367,17 @@ def mirror_keywords(p, job, limit=6):
 
 
 def tailor(profile, job, cfg, log=print):
-    if cfg["tailoring"].get("use_claude") and os.environ.get("ANTHROPIC_API_KEY"):
+    t = cfg.get("tailoring") or {}
+    reword = t.get("reword", True)
+    if reword and t.get("use_claude", True) and os.environ.get("ANTHROPIC_API_KEY"):
         try:
-            p, rejected = claude_tailor(profile, job, cfg["tailoring"]["model"])
+            p, rejected = claude_tailor(profile, job, t.get("model", "claude-sonnet-5-5"))
             for rid, txt in rejected:
                 log(f"    guardrail rejected rewrite of {rid}: {txt[:90]}...")
             return mirror_keywords(p, job), "claude"
         except Exception as e:  # noqa: BLE001
             log(f"    Claude tailoring failed ({e}); using rule-based")
-    return mirror_keywords(rule_tailor(profile, job), job), "rules"
+    p = rule_tailor(profile, job)
+    if reword:
+        p = reword_rules(p, job, profile)
+    return mirror_keywords(p, job), "rules"

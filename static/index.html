@@ -331,6 +331,7 @@ function resultHTML(r) {
     <div class="chips">${r.missing.map(m => `<span class="chip">${esc(m)}</span>`).join("") || '<span class="muted small">Nothing, you cover it all.</span>'}</div>
     ${r.added?.length ? `<div class="notice ok">Added to your skills: <b>${r.added.map(esc).join(", ")}</b>. Your resume was re-tailored.</div>` : ""}
     ${keywordOffer(r)}
+    ${changesBox(r)}
     <div class="row" style="margin-top:20px">
       <a class="btn" href="/resume/${r.id}.pdf" target="_blank">View resume</a>
       <a class="btn" href="/resume/${r.id}.pdf?dl=1">Download PDF</a>
@@ -342,9 +343,38 @@ function resultHTML(r) {
                         ? r.extra.apply_options.slice(0, 3).map((o, i) => `<a class="btn ${i ? "" : "primary"}" href="${goLink(o.link)}" target="_blank">${esc(o.title || "Apply")} →</a>`).join("")
                         : (r.url ? `<a class="btn primary" href="${goLink(r.extra?.direct_url || r.url)}" target="_blank">Open job posting →</a>` : ""))}
     </div>
-    <div class="small muted" style="margin-top:10px">${r.method === "claude" ? "Reworded with AI and checked against your master resume." : "Reordered for this job. Add an API key in Settings for AI rewording."}</div>
+    <div class="small muted" style="margin-top:10px">${r.method === "claude" ? "Reworded with AI and checked against your master resume." : "Reordered and reworded for this job. Add an API key in Settings for deeper AI rewording."}</div>
     <div class="apply-status">${statusBox(r)}</div>
   </div>`;
+}
+function changesBox(r) {
+  const ch = r.changes || [], ro = r.reordered || [];
+  if (!ch.length && !ro.length) return "";
+  const kept = ch.filter(c => c.kept !== false).length;
+  return `<details class="job-exp" style="margin-top:14px" ${ch.length ? "open" : ""}>
+    <summary style="cursor:pointer"><b>What changed for this job</b> <span class="small muted">· ${kept} of ${ch.length} rewording${ch.length === 1 ? "" : "s"} kept${ro.length ? " · bullets reordered" : ""}</span></summary>
+    ${ro.map(o => `<p class="small muted" style="margin:8px 0 0">Reordered <b>${esc(o.where)}</b> so the most relevant bullet is first: “${esc(o.top)}…”</p>`).join("")}
+    ${ch.length ? `<p class="small muted" style="margin:10px 0 4px">Untick any change to put your original wording back. The resume updates right away.</p>` : ""}
+    ${ch.map(c => `<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line);cursor:pointer">
+        <input type="checkbox" data-change="${esc(c.id)}" ${c.kept !== false ? "checked" : ""} onchange="saveChanges('${r.id}')" style="margin-top:4px;accent-color:var(--accent)">
+        <span class="small"><span class="muted">${esc(c.where)}</span><br>
+          <span style="text-decoration:line-through;opacity:.6">${esc(c.before)}</span><br>
+          <span>${diffWords(c.before, c.after)}</span></span></label>`).join("")}
+    ${ch.length > 1 ? `<div class="row" style="margin-top:8px"><button class="btn ghost small" onclick="setAllChanges('${r.id}', true)">Keep all</button><button class="btn ghost small" onclick="setAllChanges('${r.id}', false)">Undo all</button></div>` : ""}
+  </details>`;
+}
+function diffWords(a, b) {   // highlight the words that changed
+  const A = new Set(a.split(/\s+/));
+  return b.split(/(\s+)/).map(w => /\s+/.test(w) || A.has(w) ? esc(w) : `<b style="color:var(--accent)">${esc(w)}</b>`).join("");
+}
+async function saveChanges(id) {
+  const card = document.getElementById("res-" + id);
+  const rejected = [...card.querySelectorAll("input[data-change]")].filter(c => !c.checked).map(c => c.dataset.change);
+  try { const r = await api(`/api/jobs/${id}/changes`, {method: "POST", json: {rejected}}); updateJobViews(r); toast("Resume updated"); }
+  catch (e) { toast(e.message); }
+}
+function setAllChanges(id, keep) {
+  document.getElementById("res-" + id).querySelectorAll("input[data-change]").forEach(c => c.checked = keep); saveChanges(id);
 }
 function keywordOffer(r) {
   const offer = r.offer || [];
@@ -655,7 +685,9 @@ async function loadSettings() {
     <p class="small muted" style="margin-top:-6px">Optional. With an Anthropic API key, each resume gets reworded to match the job's language, and you can import a resume from a file. Usually a few cents per resume. Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>.</p>
     <div class="row"><input type="password" id="apiKey" placeholder="${settings.api_key_set ? "Saved (" + settings.api_key_hint + "). Paste a new key to replace it" : "sk-ant-…"}" style="flex:1">
     <button class="btn" onclick="saveKey()">Save key</button>${settings.api_key_set ? `<button class="btn ghost" onclick="testKey(this)">Test</button>` : ""}</div>
-    <div id="keyMsg"></div></div>
+    <div id="keyMsg"></div>
+    <label class="toggle"><input type="checkbox" id="rewordOn" ${c.tailoring?.reword !== false ? "checked" : ""}>
+      <span><b>Reword bullets to match each job</b><br><span class="small muted">Uses the job's own words for things you already describe. Facts never change, and you can undo any rewording on the job's result.</span></span></label></div>
   <div class="card"><h2>Application answers</h2>
     <p class="small muted" style="margin-top:-6px">Used to fill in forms. Leave something blank and you'll answer it yourself in the form.</p>
     <div class="grid2">
@@ -728,6 +760,7 @@ function collectSettings() {
   document.querySelectorAll("#settingsForm [data-l]").forEach(el => c.search[el.dataset.l] = split(el.value));
   document.querySelectorAll("#settingsForm [data-b]").forEach(el => c.boards[el.dataset.b] = split(el.value));
   c.search.min_score = +$("#minScore").value; c.apply.auto_submit = $("#autoSubmit").checked;
+  if ($("#rewordOn")) { c.tailoring = c.tailoring || {}; c.tailoring.reword = $("#rewordOn").checked; }
   c.search.sources = c.search.sources || {};
   document.querySelectorAll("#settingsForm [data-s]").forEach(el => c.search.sources[el.dataset.s] = el.checked);
   return c;
