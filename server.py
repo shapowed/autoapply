@@ -136,9 +136,76 @@ def job_folder_name(job):
     return re.sub(r"\s+", " ", re.sub(r'[\\/:*?"<>|\n\r\t]+', " ", raw)).strip()[:90] or "Job"
 
 
-def make_resume(job):
+# ------------------------------------------------------------------ adding keywords (with permission)
+CERT_WORDS = re.compile(r"^(a\+|network\+|security\+|ccna|ccnp|cissp|cism|cisa|ceh|itil|aws certified|comptia)", re.I)
+PRETTY = {"active directory": "Active Directory", "azure ad": "Azure AD", "entra id": "Entra ID", "intune": "Microsoft Intune",
+          "sccm": "SCCM", "mecm": "MECM", "jamf": "Jamf", "group policy": "Group Policy", "gpo": "Group Policy (GPO)",
+          "powershell": "PowerShell", "bash": "Bash", "python": "Python", "sql": "SQL", "exchange": "Exchange",
+          "exchange online": "Exchange Online", "onedrive": "OneDrive", "okta": "Okta", "mfa": "MFA", "sso": "SSO",
+          "saml": "SAML", "ldap": "LDAP", "tcp/ip": "TCP/IP", "firewall": "Firewalls", "firewalls": "Firewalls",
+          "palo alto": "Palo Alto", "fortinet": "Fortinet", "fortigate": "FortiGate", "nmap": "Nmap", "splunk": "Splunk",
+          "siem": "SIEM", "soc": "SOC", "edr": "EDR", "crowdstrike": "CrowdStrike", "sentinelone": "SentinelOne",
+          "defender": "Microsoft Defender", "nessus": "Nessus", "qualys": "Qualys", "nist": "NIST", "iso 27001": "ISO 27001",
+          "hipaa": "HIPAA", "pci": "PCI DSS", "soc 2": "SOC 2", "itsm": "ITSM", "jira": "Jira", "zendesk": "Zendesk",
+          "freshservice": "Freshservice", "windows server": "Windows Server", "mdm": "MDM", "hyper-v": "Hyper-V",
+          "azure": "Azure", "gcp": "Google Cloud", "zoom": "Zoom", "knowledge base": "knowledge base documentation",
+          "onboarding": "user onboarding", "offboarding": "user offboarding", "password reset": "password resets",
+          "remote support": "remote support", "incident response": "incident response", "backup": "backup and recovery",
+          "patch management": "patch management", "802.1x": "802.1X", "subnetting": "subnetting"}
+CATEGORY_RULES = [
+    (r"network|firewall|dns|dhcp|vpn|vlan|tcp|lan|wan|wi-?fi|wireless|router|switch|subnet|802\.1x|ldap|osi|ip", "network"),
+    (r"windows|mac|linux|ios|android|hardware|printer|mdm|intune|jamf|sccm|mecm|server|hyper-v|vmware|virtual", "system"),
+]
+
+
+def offerable(missing, profile):
+    """Missing keywords we may offer to add (not certifications, not ones the user said no to)."""
+    ignored = {k.lower() for k in profile.get("ignored_keywords") or []}
+    return [m for m in missing if m.lower() not in ignored and not CERT_WORDS.match(m)]
+
+
+def pretty_keyword(k):
+    return PRETTY.get(k.lower()) or (k.upper() if len(k) <= 3 else k[:1].upper() + k[1:])
+
+
+def skill_category(profile, keyword):
+    cats = list((profile.get("skills") or {}).keys())
+    if not cats:
+        return "Skills"
+    kind = next((name for rx, name in CATEGORY_RULES if re.search(rx, keyword, re.I)), "tools")
+    for c in cats:
+        if (kind == "network" and "network" in c.lower()) or (kind == "system" and re.search(r"system|hardware", c, re.I)) \
+                or (kind == "tools" and re.search(r"tool|platform|software", c, re.I)):
+            return c
+    return next((c for c in cats if re.search(r"tool|platform|software|technical", c, re.I)), cats[0])
+
+
+def add_skills(profile, keywords, note="added by you"):
+    """Put confirmed keywords into the skills section (never into job bullets)."""
+    profile.setdefault("skills", {})
+    have = {s["name"].lower() for items in profile["skills"].values() for s in items}
+    added = []
+    for k in keywords:
+        name = pretty_keyword(k)
+        if name.lower() in have:
+            continue
+        cat = skill_category(profile, k)
+        profile["skills"].setdefault(cat, []).append({"name": name, "aliases": [k.lower()] if k.lower() != name.lower() else [],
+                                                       "source": note})
+        have.add(name.lower())
+        added.append((name, cat))
+    return added
+
+
+def make_resume(job, extra_skills=None):
     profile, cfg = load_profile(), load_cfg()
     load_key()
+    db_prev = load_db().get(jid_for(job), {})
+    extra = list(dict.fromkeys((extra_skills or []) + (db_prev.get("extra_skills") or [])))
+    if extra:   # keywords confirmed for this job only
+        import copy
+        profile = copy.deepcopy(profile)
+        add_skills(profile, extra, note="this job only")
     s, matched, missing = score(job, profile, cfg["search"])
     tailored, method = tailor(profile, job, cfg, log=lambda *_: None)
     folder = os.path.join(resume_dir(cfg), job_folder_name(job))
@@ -152,6 +219,7 @@ def make_resume(job):
     db = load_db()
     prev = db.get(jid, {})
     rec = {**asdict(job), "id": jid, "score": s, "matched": matched[:25], "missing": missing[:25],
+           "offer": offerable(missing, load_profile() or {})[:15], "extra_skills": extra,
            "method": method, "pdf": base + ".pdf", "docx": base + ".docx",
            "pdf_path": pdf_path, "docx_path": docx_path, "folder": folder,
            "can_apply": job.source in ("greenhouse", "lever", "ashby", "workday"),
@@ -694,6 +762,28 @@ def delete_job(jid):
         db.pop(jid, None)
         save_db(db)
     return jsonify(ok=True)
+
+
+@app.post("/api/jobs/<jid>/keywords")
+def job_keywords(jid):
+    """The person confirmed which missing keywords they really have (and which to stop asking about)."""
+    r = load_db().get(jid)
+    if not r:
+        return err("Not found", 404)
+    b = request.get_json() or {}
+    keep = [k for k in b.get("add") or [] if k in (r.get("missing") or [])]
+    never = [k for k in b.get("never") or [] if k in (r.get("missing") or [])]
+    profile = load_profile()
+    if never:
+        profile["ignored_keywords"] = sorted(set((profile.get("ignored_keywords") or []) + never))
+    added = []
+    if keep and b.get("scope", "master") == "master":
+        added = add_skills(profile, keep)
+    if never or added:
+        write_yaml(PROFILE, profile)
+    rec = make_resume(job_from_record(r), extra_skills=keep if b.get("scope") == "job" else None)
+    rec["added"] = [n for n, _ in added] or [pretty_keyword(k) for k in keep]
+    return jsonify(rec)
 
 
 @app.post("/api/jobs/<jid>/retailor")

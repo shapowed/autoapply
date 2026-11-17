@@ -1,4 +1,4 @@
 {
-  "version": "1.5.1",
-  "notes": "Fixed: Update now sometimes failed right after a new version came out. Updates now download the exact version and wait for GitHub to catch up instead of giving up."
+  "version": "1.6.0",
+  "notes": "After tailoring, AutoApply now asks which missing keywords from the job you actually have, and adds the ones you check to your skills (for all resumes or just this one), then re-tailors. It never adds anything without asking."
 }

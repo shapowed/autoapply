@@ -319,8 +319,10 @@ function resultHTML(r) {
       ${pill(r.status)}</div>
     ${low ? `<div class="notice">Your resume only covers part of what this job asks for. You can still apply, but expect better odds with closer matches.</div>` : ""}
     <label class="f">You match</label><div class="chips">${r.matched.map(m => `<span class="chip good">${esc(m)}</span>`).join("") || '<span class="muted small">—</span>'}</div>
-    <label class="f">The job mentions, not on your resume <small>· if you really have one of these, add it in My resume and re-tailor</small></label>
+    <label class="f">The job mentions, not on your resume</label>
     <div class="chips">${r.missing.map(m => `<span class="chip">${esc(m)}</span>`).join("") || '<span class="muted small">Nothing, you cover it all.</span>'}</div>
+    ${r.added?.length ? `<div class="notice ok">Added to your skills: <b>${r.added.map(esc).join(", ")}</b>. Your resume was re-tailored.</div>` : ""}
+    ${keywordOffer(r)}
     <div class="row" style="margin-top:20px">
       <a class="btn" href="/resume/${r.id}.pdf" target="_blank">View resume</a>
       <a class="btn" href="/resume/${r.id}.pdf?dl=1">Download PDF</a>
@@ -335,6 +337,37 @@ function resultHTML(r) {
     <div class="small muted" style="margin-top:10px">${r.method === "claude" ? "Reworded with AI and checked against your master resume." : "Reordered for this job. Add an API key in Settings for AI rewording."}</div>
     <div class="apply-status">${statusBox(r)}</div>
   </div>`;
+}
+function keywordOffer(r) {
+  const offer = r.offer || [];
+  if (!offer.length || state.is_remote && false) return "";
+  return `<div class="job-exp" style="margin-top:14px" id="kw-${r.id}">
+    <b>Do you have any of these? Add them to raise your match.</b>
+    <p class="small muted" style="margin:4px 0 8px">Check only skills you've actually used and could talk about in an interview. They go in your skills list, never into your job descriptions.</p>
+    <div class="chips">${offer.map(k => `<label class="chip edit" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" value="${esc(k)}" style="accent-color:var(--accent)">${esc(k)}</label>`).join("")}</div>
+    <div class="row small" style="margin-top:10px">
+      <label><input type="radio" name="scope-${r.id}" value="master" checked style="accent-color:var(--accent)"> Add to my master resume (all future resumes)</label>
+      <label><input type="radio" name="scope-${r.id}" value="job" style="accent-color:var(--accent)"> Only this resume</label>
+    </div>
+    <label class="small" style="display:block;margin-top:6px"><input type="checkbox" id="never-${r.id}" style="accent-color:var(--accent)"> Don't ask me again about the ones I didn't check</label>
+    <div class="row" style="margin-top:10px">
+      <button class="btn primary small" onclick="addKeywords('${r.id}', this)">Add &amp; re-tailor</button>
+      <button class="btn ghost small" onclick="document.getElementById('kw-${r.id}').remove()">Not now</button>
+    </div></div>`;
+}
+async function addKeywords(id, btn) {
+  const box = document.getElementById("kw-" + id);
+  const all = [...box.querySelectorAll(".chips input")];
+  const add = all.filter(c => c.checked).map(c => c.value);
+  const never = document.getElementById("never-" + id).checked ? all.filter(c => !c.checked).map(c => c.value) : [];
+  if (!add.length && !never.length) return toast("Check the skills you have first.");
+  if (add.length && !confirm(`Add ${add.join(", ")} to your resume? Only do this if you've really used ${add.length > 1 ? "them" : "it"}.`)) return;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Re-tailoring…';
+  try {
+    const r = await api(`/api/jobs/${id}/keywords`, {method: "POST",
+      json: {add, never, scope: box.querySelector(`input[name="scope-${id}"]:checked`).value}});
+    updateJobViews(r); toast(add.length ? `Score now ${r.score}` : "Got it");
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Add & re-tailor"; }
 }
 function statusBox(r) {
   if (r.status === "applying") return `<div class="notice info"><span class="spinner"></span> ${esc(r.apply_msg)}</div>`;
@@ -513,6 +546,8 @@ function drawResume() {
     ${Object.entries(p.skills).map(([cat, items]) => `<label class="f">${esc(cat)} <button class="btn small ghost danger" onclick="if(confirm('Remove the whole ${esc(cat)} category?')){delete profile.skills['${esc(cat)}'];drawResume()}">remove category</button></label>
       <div class="chips">${items.map((s, k) => `<span class="chip edit ${s.confidence === "low" ? "low" : ""}" onclick="toggleLow('${esc(cat)}',${k})">${esc(s.name)}<span class="x" onclick="event.stopPropagation();profile.skills['${esc(cat)}'].splice(${k},1);drawResume()">✕</span></span>`).join("")}</div>
       <div class="row" style="margin-top:8px"><input type="text" placeholder="Add a skill to ${esc(cat)}, then press Enter" style="max-width:360px" onkeydown="if(event.key==='Enter'&&this.value.trim()){profile.skills['${esc(cat)}'].push({name:this.value.trim(),aliases:[]});drawResume()}"></div>`).join("")}
+    ${(p.ignored_keywords || []).length ? `<label class="f">Keywords you said you don't have <small>· AutoApply won't suggest these. Click ✕ to allow it again, then Save.</small></label>
+      <div class="chips">${p.ignored_keywords.map((k, i) => `<span class="chip">${esc(k)}<span class="x" onclick="profile.ignored_keywords.splice(${i},1);drawResume()">✕</span></span>`).join("")}</div>` : ""}
     <div class="row" style="margin-top:14px"><input type="text" id="newCat" placeholder="New category name" style="max-width:260px">
       <button class="btn small" onclick="const v=$('#newCat').value.trim();if(v){profile.skills[v]=[];drawResume()}">+ Category</button></div>
   </div>
