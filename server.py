@@ -602,8 +602,8 @@ def apply_route(jid):
     from apply import apply_one
 
     def on_status(state, msg):
-        st = {"opening": "applying", "opened": "applying", "closed": "check", "check": "check",
-              "submitted": "submitted", "error": "applying"}[state]
+        st = {"opening": "applying", "opened": "applying", "applying": "applying", "closed": "check",
+              "check": "check", "submitted": "submitted", "error": "applying"}.get(state, "applying")
         update_job(jid, status=st, apply_msg=msg, updated=dt.datetime.now().isoformat(timespec="seconds"))
 
     def run():

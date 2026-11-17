@@ -1,4 +1,4 @@
 {
-  "version": "1.3.1",
-  "notes": "Fixed: Workday applications could open a blank window. AutoApply now always uses the job's full Workday link, and if a page ever fails to load, the window explains why instead of staying blank."
+  "version": "1.3.2",
+  "notes": "Fixed: Workday applications stopped right away with \"got stuck: 'applying'\". The Workday assistant now runs all the way to the Review page."
 }
