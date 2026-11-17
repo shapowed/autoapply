@@ -3,6 +3,9 @@
 Local job-application helper: tailors a resume to each job (truthfully, from `profile.yaml` only),
 searches jobs (Greenhouse/Lever/Ashby boards, Google Jobs via SerpApi, Adzuna), and fills
 application forms with Playwright. Flask server (`server.py`) + single-page UI (`static/index.html`).
+Workday: postings are read via the public `/wday/cxs/{tenant}/{site}` JSON endpoints (`jobs.py`);
+applications go through `workday_apply.py` (beta: per-company accounts saved in `data/secrets.json`
+under `workday_accounts`; it stops and waits for the person whenever a page needs them, and at Review).
 
 ## Shipping changes: the app updates itself from this repo
 

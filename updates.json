@@ -1,4 +1,4 @@
 {
-  "version": "1.2.0",
-  "notes": "Workday support: paste a Workday job link to get a resume tailored to the full posting, and add companies' Workday career sites in Settings so Find jobs searches them."
+  "version": "1.3.0",
+  "notes": "Workday applications (beta): \"Fill out application\" now works on Workday jobs. It signs in or creates your account, uploads your resume, fills each page, and stops at Review. Passwords it creates are in Settings → Workday accounts."
 }

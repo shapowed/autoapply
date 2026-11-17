@@ -15,6 +15,7 @@ FIELD_MAP = [
     (r"^last\s*name|surname|family name", "last_name"),
     (r"^(full\s*)?name\b(?!.*(first|last|company|preferred))", "full_name"),
     (r"e-?mail", "email"),
+    (r"phone device type|phone type|device type", "phone_type"),
     (r"phone|mobile", "phone"),
     (r"linkedin", "linkedin"),
     (r"website|portfolio|github", "website"),
@@ -24,6 +25,10 @@ FIELD_MAP = [
     (r"start date|earliest.*start|notice", "earliest_start"),
     (r"authori[sz]ed to work|legally (authorized|eligible)|right to work", "work_authorized_us"),
     (r"sponsorship|visa", "needs_sponsorship"),
+    (r"postal|zip", "zip"),
+    (r"^state\b|province|^region\b", "state"),
+    (r"^country\b", "country"),
+    (r"^date\b|today'?s date|^signature date", "today"),
     # Voluntary self-identification (EEO). Only filled if you set an answer in Settings.
     (r"hispanic|latin[oax]", "eeo_hispanic"),
     (r"\bgender\b|\bsex\b", "eeo_gender"),
@@ -50,6 +55,10 @@ def preferences(key, value):
     syn = SYNONYMS.get(key, {}).get(v.lower())
     if syn:
         return syn
+    if key == "country" and v.lower().startswith("united states"):
+        return ["United States of America", "United States", "USA", "US"]
+    if key == "phone_type":
+        return ["Mobile", "Cell", "Cellular", "Personal"]
     if key == "eeo_race":   # e.g. "Filipino, Asian" -> try Filipino first, then Asian
         return [p.strip() for p in v.split(",") if p.strip()] + (DECLINE if v.lower() == "decline" else [])
     return [v]
@@ -77,10 +86,36 @@ def apply_url(job):
     return job.url
 
 
+STATE_NAMES = {"AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado",
+               "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia", "FL": "Florida", "GA": "Georgia",
+               "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+               "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts",
+               "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+               "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico",
+               "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+               "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+               "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+               "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming"}
+
+
 def _answers(cfg, profile):
+    import datetime as _dt
     a = dict(cfg["applicant"])
-    a["full_name"] = f"{a['first_name']} {a['last_name']}"
-    a["current_company"] = profile["experience"][0]["company"]
+    a["full_name"] = f"{a.get('first_name', '')} {a.get('last_name', '')}".strip()
+    exp = profile.get("experience") or [{}]
+    a["current_company"] = exp[0].get("company", "")
+    # address pieces from "Jamaica, NY" / "Jamaica, NY, 11435"
+    loc = " ".join([a.get("city", ""), (profile.get("contact") or {}).get("location", "")])
+    zm = re.search(r"\b\d{5}\b", loc)
+    if zm:
+        a["zip"] = zm.group(0)
+    sm = re.search(r",\s*([A-Z]{2})\b", loc)
+    if sm and sm.group(1) in STATE_NAMES:
+        a["state"] = STATE_NAMES[sm.group(1)]
+        a["country"] = "United States of America"
+    a["city_only"] = (a.get("city") or "").split(",")[0].strip()
+    a["phone_type"] = "Mobile"
+    a["today"] = _dt.date.today().strftime("%m/%d/%Y")
     return {k: v for k, v in a.items() if v}
 
 
@@ -96,6 +131,22 @@ def _fill_control(page, ctl, value, key=""):
         ctl.select_option(index=i)
         return True
     if typ in ("checkbox", "radio", "file", "hidden", "submit"):
+        return False
+    if tag == "button" and (ctl.get_attribute("aria-haspopup") or "") == "listbox":   # Workday dropdowns
+        current = (ctl.inner_text() or "").strip().lower()
+        if current and current not in ("select one", "select", "--"):
+            return True
+        ctl.click()
+        page.wait_for_timeout(500)
+        opts = page.locator("[role=listbox] [role=option], [role=option]")
+        i = pick_option(opts.all_inner_texts(), prefs)
+        if i is None:
+            ctl.press("Escape")
+            return False
+        opts.nth(i).click()
+        page.wait_for_timeout(300)
+        return True
+    if tag == "button":
         return False
     if ctl.get_attribute("role") == "combobox":   # dropdowns on Greenhouse/Ashby
         ctl.click()
@@ -117,11 +168,11 @@ def _fill_control(page, ctl, value, key=""):
     return True
 
 
-RADIO_GROUPS_JS = """() => [...document.querySelectorAll('fieldset, [role=radiogroup]')]
-  .filter(g => g.querySelector('input[type=radio]'))
+RADIO_GROUPS_JS = """() => [...document.querySelectorAll('fieldset, [role=radiogroup], [role=group]')]
+  .filter(g => g.querySelector('input[type=radio], input[type=checkbox]'))
   .map(g => {
     const q = (g.querySelector('legend') || g).innerText.split('\\n')[0];
-    const radios = [...g.querySelectorAll('input[type=radio]')];
+    const radios = [...g.querySelectorAll('input[type=radio], input[type=checkbox]')];
     const labels = radios.map(r => (r.labels && r.labels[0] ? r.labels[0].innerText : r.value) || '');
     return {q, labels, checked: radios.some(r => r.checked)};
   })"""
@@ -129,18 +180,22 @@ RADIO_GROUPS_JS = """() => [...document.querySelectorAll('fieldset, [role=radiog
 
 def fill_radio_groups(page, answers):
     filled = 0
-    groups = page.locator("fieldset:has(input[type=radio]), [role=radiogroup]:has(input[type=radio])")
+    groups = page.locator("fieldset:has(input[type=radio], input[type=checkbox]), [role=radiogroup]:has(input[type=radio]), "
+                          "[role=group]:has(input[type=radio], input[type=checkbox])")
     info = page.evaluate(RADIO_GROUPS_JS)
     for gi, g in enumerate(info):
         if g["checked"] or gi >= groups.count():
             continue
         q = g["q"].replace("*", "").strip().lower()
         key = next((k for rx, k in FIELD_MAP if re.search(rx, q)), None)
+        if not key:   # e.g. "Please check one of the boxes below" with disability options
+            joined = " ".join(g["labels"]).lower()
+            key = next((k for rx, k in FIELD_MAP if k.startswith("eeo_") and re.search(rx, joined)), None)
         if not key or key not in answers:
             continue
         i = pick_option(g["labels"], preferences(key, answers[key]))
         if i is not None:
-            groups.nth(gi).locator("input[type=radio]").nth(i).check(force=True)
+            groups.nth(gi).locator("input[type=radio], input[type=checkbox]").nth(i).check(force=True)
             filled += 1
     return filled
 
@@ -213,13 +268,29 @@ def _launch(pw, headless):
         raise RuntimeError("No browser found. Install Google Chrome, or run: playwright install chromium")
 
 
-def apply_one(job, pdf, cfg, profile, on_status=print):
+def apply_one(job, pdf, cfg, profile, on_status=print, accounts=None, save_account=None):
     """For the app: open one application, fill it, then either auto-submit or
     keep the window open until the user closes it. Reports progress via on_status."""
     answers = _answers(cfg, profile)
     with sync_playwright() as pw:
         browser = _launch(pw, headless=False)
         page = browser.new_page()
+        if job.source == "workday":
+            import workday_apply
+            a = dict(answers, city=answers.get("city_only", answers.get("city", "")))
+            try:
+                workday_apply.run(page, job, job.url, a, pdf, accounts or {}, save_account or (lambda *_: None),
+                                  cfg["apply"].get("auto_submit", False), on_status)
+            except Exception as e:  # noqa: BLE001
+                on_status("error", f"The Workday assistant got stuck: {str(e)[:160]}. "
+                                   f"The page is still open, so you can finish it by hand.")
+                try:
+                    page.wait_for_event("close", timeout=0)
+                except Exception:  # noqa: BLE001
+                    pass
+            finally:
+                browser.close()
+            return
         try:
             on_status("opening", "Opening the application page...")
             page.goto(apply_url(job), wait_until="networkidle", timeout=60000)

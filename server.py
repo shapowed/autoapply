@@ -124,7 +124,7 @@ def make_resume(job):
     prev = db.get(jid, {})
     rec = {**asdict(job), "id": jid, "score": s, "matched": matched[:25], "missing": missing[:25],
            "method": method, "pdf": base + ".pdf", "docx": base + ".docx",
-           "can_apply": job.source in ("greenhouse", "lever", "ashby"),
+           "can_apply": job.source in ("greenhouse", "lever", "ashby", "workday"),
            "status": prev.get("status", "ready"), "apply_msg": prev.get("apply_msg", ""),
            "date": prev.get("date", dt.date.today().isoformat()),
            "updated": dt.datetime.now().isoformat(timespec="seconds")}
@@ -187,7 +187,7 @@ def is_local():
 
 
 OPEN_PATHS = ("/login", "/static/", "/manifest.webmanifest")
-LOCAL_ONLY = ("/api/phone", "/api/quit", "/api/open-folder", "/api/test-key")
+LOCAL_ONLY = ("/api/phone", "/api/quit", "/api/open-folder", "/api/test-key", "/api/workday")
 
 
 @app.before_request
@@ -275,6 +275,40 @@ def set_phone():
     except OSError as e:
         return err(f"Couldn't open phone access: {e}")
     return jsonify(phone_info())
+
+
+def save_workday_account(tenant, acct):
+    with lock:
+        sec = load_secrets()
+        accts = sec.setdefault("workday_accounts", {})
+        if acct:
+            accts[tenant] = acct
+        else:
+            accts.pop(tenant, None)
+        save_secrets(sec)
+
+
+@app.get("/api/workday/accounts")
+def get_workday_accounts():
+    accts = load_secrets().get("workday_accounts", {})
+    return jsonify([{"company": k, **v} for k, v in sorted(accts.items())])
+
+
+@app.put("/api/workday/accounts")
+def put_workday_account():
+    b = request.get_json() or {}
+    company = re.sub(r"[^a-z0-9-]", "", (b.get("company") or "").lower())
+    if not company or not b.get("password"):
+        return err("Company and password are required.")
+    save_workday_account(company, {"email": b.get("email") or (load_cfg().get("applicant") or {}).get("email", ""),
+                                   "password": b["password"], "created": dt.date.today().isoformat()})
+    return get_workday_accounts()
+
+
+@app.delete("/api/workday/accounts/<company>")
+def delete_workday_account(company):
+    save_workday_account(company, None)
+    return get_workday_accounts()
 
 
 @app.post("/api/quit")
@@ -575,7 +609,8 @@ def apply_route(jid):
     def run():
         applying["busy"] = True
         try:
-            apply_one(job_from_record(r), os.path.join(OUT, r["pdf"]), load_cfg(), load_profile(), on_status)
+            apply_one(job_from_record(r), os.path.join(OUT, r["pdf"]), load_cfg(), load_profile(), on_status,
+                      accounts=load_secrets().get("workday_accounts", {}), save_account=save_workday_account)
         except Exception as e:  # noqa: BLE001
             update_job(jid, status="ready", apply_msg=f"Couldn't open the browser: {e}")
         finally:
@@ -623,7 +658,7 @@ def start_search():
                 res.append({"id": jid, "company": j.extra.get("company_name") or j.company, "title": j.title,
                             "location": j.location, "url": j.url, "score": s, "missing": missing[:8],
                             "via": j.extra.get("via") or j.source.title(), "posted": j.extra.get("posted", ""),
-                            "can_apply": j.source in ("greenhouse", "lever", "ashby"),
+                            "can_apply": j.source in ("greenhouse", "lever", "ashby", "workday"),
                             "snippet": bool(j.extra.get("snippet_only")),
                             "already": db.get(jid, {}).get("status")})
             res.sort(key=lambda x: -x["score"])

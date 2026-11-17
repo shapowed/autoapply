@@ -325,7 +325,7 @@ function resultHTML(r) {
       <a class="btn" href="/files/${encodeURIComponent(r.pdf)}?dl=1">Download PDF</a>
       <a class="btn" href="/files/${encodeURIComponent(r.docx)}?dl=1">Download Word</a>
       <span style="flex:1"></span>
-      ${r.can_apply ? `<button class="btn primary" onclick="applyJob('${r.id}')">${state.is_remote ? "Fill out on my computer →" : "Fill out application →"}</button>`
+      ${r.can_apply ? `<button class="btn primary" onclick="applyJob('${r.id}')">${state.is_remote ? "Fill out on my computer" : "Fill out application"}${r.source === "workday" ? " (beta)" : ""} →</button>`
                     : (r.extra?.apply_options?.length
                         ? r.extra.apply_options.slice(0, 3).map((o, i) => `<a class="btn ${i ? "" : "primary"}" href="${esc(o.link)}" target="_blank">${esc(o.title || "Apply")} →</a>`).join("")
                         : (r.url ? `<a class="btn primary" href="${esc(r.url)}" target="_blank">Open job posting →</a>` : ""))}
@@ -577,6 +577,16 @@ async function loadSettings() {
     <label class="toggle" style="margin:6px 0"><input type="checkbox" data-s="company_boards" ${c.search.sources?.company_boards !== false ? "checked" : ""}><span>Company career pages listed below</span></label>
     <div class="row" style="margin-top:8px"><button class="btn" onclick="saveSources()">Save job site keys</button></div>
   </div>
+  <div class="card local-only"><h2>Workday accounts</h2>
+    <p class="small muted" style="margin-top:-6px">Workday needs a separate account for each company. When AutoApply creates one for you, it saves the password here so you can sign in yourself too. If you already have an account with a company, add it here so AutoApply can sign in.</p>
+    <div id="wdAccounts" class="small muted">Loading…</div>
+    <div class="grid2" style="grid-template-columns:1fr 1fr 1fr auto;align-items:end">
+      <div><label class="f">Company <small>(as in its link, e.g. <b>pwc</b>.wd3…)</small></label><input type="text" id="wdCo" placeholder="pwc"></div>
+      <div><label class="f">Email</label><input type="text" id="wdEmail" placeholder="${esc(a.email || "")}"></div>
+      <div><label class="f">Password</label><input type="password" id="wdPw"></div>
+      <div><button class="btn" onclick="saveWdAccount()">Save</button></div>
+    </div>
+  </div>
   <div class="card"><h2>Voluntary demographic questions</h2>
     <p class="small muted" style="margin-top:-6px">Many US applications ask these. They're optional and legally can't be used in hiring decisions. Anything set to "Ask me each time" is left for you to answer in the form.</p>
     <div class="grid2">
@@ -602,7 +612,7 @@ async function loadSettings() {
   </div>
   <div class="row"><button class="btn primary" onclick="saveSettings()">Save settings</button></div>`;
   $("#minScore").oninput = e => $("#minV").textContent = e.target.value;
-  drawPhone(); drawTheme(); drawUpdateCard();
+  drawPhone(); drawTheme(); drawUpdateCard(); if (!state.is_remote) loadWdAccounts();
 }
 function collectSettings() {
   const c = settings.config, split = v => v.split(/[,\n]/).map(x => x.trim()).filter(Boolean);
@@ -714,6 +724,25 @@ async function quitApp() {
   if (!confirm("Quit AutoApply? Your phone won't be able to reach it until you open it again.")) return;
   await api("/api/quit", {method: "POST"}).catch(() => {});
   document.body.innerHTML = '<div class="empty" style="padding-top:30vh"><h1>AutoApply is closed</h1><p class="muted">Open it again from your Applications folder, Start menu or desktop shortcut.</p></div>';
+}
+
+/* ---------- workday accounts ---------- */
+async function loadWdAccounts() {
+  const list = await api("/api/workday/accounts").catch(() => []);
+  const el = $("#wdAccounts"); if (!el) return;
+  el.innerHTML = list.length ? `<div class="list">${list.map(a => `<div class="item" style="padding:8px 2px">
+      <div class="grow"><b>${esc(a.company)}</b> <span class="muted">· ${esc(a.email)}${a.created ? " · since " + esc(a.created) : ""}</span></div>
+      <code class="small" data-pw="${esc(a.password)}">••••••••</code>
+      <button class="btn small ghost" onclick="const c=this.previousElementSibling;c.textContent=c.textContent.startsWith('•')?c.dataset.pw:'••••••••'">Show</button>
+      <button class="btn small ghost" onclick="navigator.clipboard.writeText('${esc(a.password)}');toast('Password copied')">Copy</button>
+      <button class="btn small ghost danger" onclick="if(confirm('Forget the saved ${esc(a.company)} password?'))api('/api/workday/accounts/${esc(a.company)}',{method:'DELETE'}).then(loadWdAccounts)">✕</button></div>`).join("")}</div>`
+    : "None yet. They'll appear here as AutoApply creates them.";
+}
+async function saveWdAccount() {
+  try {
+    await api("/api/workday/accounts", {method: "PUT", json: {company: $("#wdCo").value, email: $("#wdEmail").value, password: $("#wdPw").value}});
+    $("#wdCo").value = $("#wdEmail").value = $("#wdPw").value = ""; toast("Saved"); loadWdAccounts();
+  } catch (e) { toast(e.message); }
 }
 
 /* ---------- updates ---------- */
