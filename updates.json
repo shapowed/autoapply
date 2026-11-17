@@ -1,4 +1,4 @@
 {
-  "version": "1.7.0",
-  "notes": "Job links now skip spammy middleman sites (Adzuna, Lensa, Jooble, Talent.com…) and take you straight to the employer's own posting, without tracking codes. Direct company links are listed first, and jobs whose real link is Greenhouse, Lever, Ashby or Workday can now be filled out for you."
+  "version": "1.8.0",
+  "notes": "Find jobs can now search by radius: \"within 25 miles of 11435\" (any ZIP or City, ST), with an option to include remote jobs. Each result shows how far away it is."
 }

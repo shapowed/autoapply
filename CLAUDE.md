@@ -9,8 +9,9 @@ under `workday_accounts`; it stops and waits for the person whenever a page need
 
 ## Shipping changes: the app updates itself from this repo
 
-Installed copies check `updates.json` on `main` at launch and every 6 hours, download
-the code zip, verify it, and replace only code files (see `updater.py`). To release:
+Installed copies check for updates at launch and every 15 minutes (newest commit SHA via the API,
+then `updates.json` + code zip by SHA so nothing is stale), verify, and replace only code files
+(see `updater.py`). New entries in `requirements.txt` are pip-installed during the update. To release:
 
 1. Make the change. Keep Python 3.9-compatible.
 2. Bump `VERSION` **and** `updates.json` → `version` to the same new value, and write a
@@ -20,6 +21,9 @@ the code zip, verify it, and replace only code files (see `updater.py`). To rele
 `VERSION` in the downloaded zip must equal `updates.json`'s version or the update is refused.
 
 Rebuild installers (only needed for new installs or launcher changes): `python build.py` → `dist/`.
+
+Radius search: `geo.py` (offline US ZIP/city coordinates from the `zipcodes` package) measures each
+job's distance; `jobs.search_places` / `_within` apply it.
 
 ## Never commit personal data
 
@@ -32,4 +36,5 @@ won't have them.
 
 Tailoring may reorder/reword only what's in the master profile. `tailor.validate_rewrite`
 rejects rewrites that add tools, numbers or low-confidence skills. Missing JD keywords are
-reported to the user, never inserted.
+reported to the user and only added (to the skills section, never bullets; never certifications)
+after the user ticks them and confirms.

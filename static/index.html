@@ -187,9 +187,16 @@ a.btn{color:var(--ink)}
     <h1>Find jobs</h1>
     <p class="sub">Searches LinkedIn, Indeed, Glassdoor, ZipRecruiter and company career sites at once, then ranks every job by how well your resume fits it.</p>
     <div class="card">
-      <div class="grid2" style="grid-template-columns:2fr 1fr">
-        <div><label class="f" style="margin-top:0">What <small>(comma separated: each is one search)</small></label><input type="text" id="fWhat" placeholder="IT Support, Help Desk"></div>
-        <div><label class="f" style="margin-top:0">Where <small>(up to 3, separate with ;)</small></label><input type="text" id="fWhere" placeholder="New York, NY; Remote"></div>
+      <label class="f" style="margin-top:0">What <small>(comma separated: each is one search)</small></label><input type="text" id="fWhat" placeholder="IT Support, Help Desk">
+      <div class="row" style="margin-top:14px;align-items:center"><label class="f" style="margin:0">Where</label>
+        <div class="tabs" id="whereMode" style="margin:0"><button data-m="radius" onclick="setWhereMode('radius')">Radius</button><button data-m="places" onclick="setWhereMode('places')">Places</button></div></div>
+      <div id="wherePlaces" class="hide" style="margin-top:8px"><input type="text" id="fWhere" placeholder="New York, NY; Jersey City, NJ; Remote"><div class="small muted" style="margin-top:4px">Up to 3 places, separated with ;</div></div>
+      <div id="whereRadius" class="row" style="margin-top:8px">
+        <span>Within</span>
+        <select id="fMiles" class="btn small" style="width:auto"><option>5</option><option>10</option><option>15</option><option selected>25</option><option>35</option><option>50</option><option>75</option><option>100</option></select>
+        <span>miles of</span>
+        <input type="text" id="fCenter" placeholder="ZIP code or City, ST" style="flex:1;min-width:160px">
+        <label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="fRemote" style="accent-color:var(--accent)"> include remote jobs</label>
       </div>
       <div class="row" style="margin-top:14px">
         <button class="btn primary" id="searchBtn">Search now</button>
@@ -434,14 +441,50 @@ $("#searchBtn").onclick = async () => {
     const q = $("#fWhat").value.split(",").map(x => x.trim()).filter(Boolean);
     if (q.length) c.search.queries = q;
     c.search.location = $("#fWhere").value.trim();
+    c.search.where_mode = whereMode;
+    c.search.radius = {center: $("#fCenter").value.trim(), miles: +$("#fMiles").value, remote: $("#fRemote").checked};
+    if (whereMode === "radius" && !c.search.radius.center) return toast("Enter a ZIP code or City, ST to search around.");
     await api("/api/settings", {method: "PUT", json: {config: c}});
     viewSid = null; await api("/api/search", {method: "POST"}); pollSearch(); initFind();
   } catch (e) { toast(e.message); }
 };
+let whereMode = "radius";
+function refreshWhereNote() {
+  const w = $("#whereNote"), c = $("#costNote");
+  const queries = $("#fWhat").value.split(",").map(x => x.trim()).filter(Boolean).length || 1;
+  let places;
+  if (whereMode === "radius") {
+    const center = $("#fCenter").value.trim();
+    if (w) w.innerHTML = center ? `Searching within <b>${esc($("#fMiles").value)} miles of ${esc(center)}</b>${$("#fRemote").checked ? " plus remote jobs" : ""}.` : "Enter a ZIP code or City, ST to search around.";
+    places = 1 + ($("#fRemote").checked ? 1 : 0);
+  } else {
+    const p = $("#fWhere").value.split(/;|\bor\b/i).map(x => x.trim()).filter(Boolean).slice(0, 3);
+    if (w) w.innerHTML = p.length ? `Searching in: <b>${p.map(esc).join("</b>, <b>")}</b>.` : "Searching everywhere.";
+    places = Math.max(1, p.length);
+  }
+  if (c) c.textContent = queries * places * (settings?.config?.search?.google_pages || 1);
+}
+document.addEventListener("input", e => { if (e.target.closest && e.target.closest("#v-find")) refreshWhereNote(); });
+document.addEventListener("change", e => { if (e.target.closest && e.target.closest("#v-find")) refreshWhereNote(); });
+function setWhereMode(m) {
+  whereMode = m;
+  document.querySelectorAll("#whereMode button").forEach(b => b.classList.toggle("on", b.dataset.m === m));
+  $("#wherePlaces").classList.toggle("hide", m !== "places");
+  $("#whereRadius").classList.toggle("hide", m !== "radius");
+  refreshWhereNote();
+}
 async function initFind() {
   const s = await api("/api/settings"); settings = s; const c = s.config.search, k = s.sources || {};
   if (!$("#fWhat").value) $("#fWhat").value = (c.queries || []).join(", ");
   if (!$("#fWhere").value) $("#fWhere").value = c.location || "";
+  const rad = c.radius || {};
+  if (!initFind.done) {
+    setWhereMode(c.where_mode || (c.location ? "places" : "radius"));
+    $("#fCenter").value = rad.center || s.home_zip || "";
+    if (rad.miles) $("#fMiles").value = String(rad.miles);
+    $("#fRemote").checked = !!rad.remote;
+    initFind.done = true;
+  }
   const on = [], off = [];
   (k.serpapi_key ? on : off).push("Google Jobs (LinkedIn, Indeed, Glassdoor…)");
   (k.adzuna_app_id && k.adzuna_app_key ? on : off).push("Adzuna");
@@ -449,12 +492,12 @@ async function initFind() {
   let note = "Searching: " + on.join(" · ");
   if (off.length && !state.is_remote) note += ` &nbsp;·&nbsp; <a href="#" data-go="settings">Add keys</a> to also search ${off.join(" and ")}.`;
   if (k.serpapi_key) {
-    const q = (c.queries || []).length * Math.max(1, (s.places || []).length) * (c.google_pages || 1);
-    if ((s.places || []).length) note += `<br>Searching in: <b>${s.places.map(esc).join("</b>, <b>")}</b>.`;
-    note += `<br>Each search uses ${q} of your Google Jobs searches.`;
+    note += `<br><span id="whereNote"></span>`;
+    note += `<br>Each search uses <span id="costNote"></span> of your Google Jobs searches.`;
     api("/api/sources/usage").then(u => { if (u.google_left != null) $("#srcNote").innerHTML += ` <b>${u.google_left}</b> left this month.`; }).catch(() => {});
   }
   $("#srcNote").innerHTML = note;
+  refreshWhereNote();
   const missing = !k.serpapi_key || !(k.adzuna_app_id && k.adzuna_app_key);
   $("#connectBox").classList.toggle("hide", !missing || !!state.is_remote);
   $("#cSerp").closest("div").classList.toggle("hide", !!k.serpapi_key);
@@ -498,7 +541,7 @@ async function pollSearch() {
   $("#searchSummary").textContent = s.results.length ? `${good.length} strong matches out of ${s.results.length}` : "";
   $("#searchResults").innerHTML = s.results.length ? `<div class="card list">${s.results.map(r => `<div class="item" style="${r.score < min ? "opacity:.55" : ""}">
       ${scoreRing(r.score, true)}
-      <div class="grow"><div class="t">${esc(r.title)}</div><div class="small muted">${esc(r.company)} · ${esc(r.location)}${r.posted ? " · " + esc(r.posted) : ""}</div>
+      <div class="grow"><div class="t">${esc(r.title)}</div><div class="small muted">${esc(r.company)} · ${esc(r.location)}${r.distance ? ` · <b>${r.distance === "?" ? "distance unknown" : r.distance === "Remote" ? "remote" : esc(r.distance) + " away"}</b>` : ""}${r.posted ? " · " + esc(r.posted) : ""}</div>
         <div class="chips" style="margin-top:4px">${r.new ? '<span class="chip good">New</span>' : ""}<span class="chip">via ${esc(r.via)}</span>${r.can_apply ? '<span class="chip good">AutoApply can fill this out</span>' : ""}${r.snippet ? '<span class="chip" title="Adzuna only shares a preview. The real score is calculated when you click Make resume.">rough score</span>' : ""}</div></div>
       ${r.already ? pill(r.already) : `<button class="btn small primary" onclick="tailorFound('${r.id}',this)">Make resume</button>`}
       <a class="btn small ghost" href="${goLink(r.url)}" target="_blank">View</a></div>`).join("")}</div>` : "";

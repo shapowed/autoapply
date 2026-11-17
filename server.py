@@ -15,7 +15,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import updater
 from importer import finalize, import_resume
-from jobs import Job, discover, fetch_job, full_description, manual_job, parse_job_url, parse_locations
+from jobs import Job, discover, fetch_job, full_description, manual_job, parse_job_url, parse_locations, search_places
 from render import render_docx, render_pdf_one_page
 from tailor import score, tailor
 
@@ -585,7 +585,10 @@ def get_settings():
     sec = load_secrets()
     return jsonify({"config": load_cfg(), "api_key_set": bool(k), "api_key_hint": ("…" + k[-4:]) if k else "",
                     "sources": {n: ("…" + sec[n][-4:]) if sec.get(n) else "" for n in SOURCE_KEYS},
-                    "places": [p for p in parse_locations((load_cfg().get("search") or {}).get("location", "")) if p]})
+                    "places": [p for p in search_places(load_cfg().get("search") or {})[0] if p],
+                    "area": (lambda a: a and {"label": a["label"], "miles": a["miles"], "remote": a["remote"]})(
+                        search_places(load_cfg().get("search") or {})[1]),
+                    "home_zip": (lambda m: m.group(0) if m else "")(re.search(r"\b\d{5}\b", ((load_profile() or {}).get("contact") or {}).get("location", "")))})
 
 
 @app.put("/api/settings")
@@ -945,6 +948,7 @@ def start_search():
                 res.append({"id": jid, "company": j.extra.get("company_name") or j.company, "title": j.title,
                             "location": j.location, "url": j.url, "score": s, "missing": missing[:8],
                             "via": j.extra.get("via") or j.source.title(), "posted": j.extra.get("posted", ""),
+                            "distance": j.extra.get("distance", ""),
                             "can_apply": j.source in ("greenhouse", "lever", "ashby", "workday"),
                             "snippet": bool(j.extra.get("snippet_only")),
                             "new": bool(seen_before) and jid not in seen_before})

@@ -227,16 +227,23 @@ def _ats_job_from(link, title, company_name, location, description, extra):
     return Job(source, slug, jid, title, location, url, description, {**extra, "company_name": company_name})
 
 
-def google_jobs(query, location, api_key, pages=1, log=print):
+def google_jobs(query, location, api_key, pages=1, log=print, radius_km=None):
     """Google Jobs (which lists LinkedIn, Indeed, Glassdoor, ZipRecruiter and company sites) via SerpApi."""
     token = None
     for _ in range(max(1, pages)):
         q = query if not location else (f"{query} remote" if location == "Remote" else f"{query} in {location}")
         params = {"engine": "google_jobs", "q": q, "api_key": api_key, "hl": "en", "gl": "us"}
+        if radius_km and location != "Remote":
+            params["lrad"] = radius_km
         if token:
             params["next_page_token"] = token
         r = requests.get("https://serpapi.com/search.json", params=params, headers=UA, timeout=60)
         data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if (r.status_code != 200 or data.get("error")) and "lrad" in params and "lrad" in str(data.get("error", "")):
+            radius_km = None   # radius not accepted: search the place and filter by distance ourselves
+            params.pop("lrad")
+            r = requests.get("https://serpapi.com/search.json", params=params, headers=UA, timeout=60)
+            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if r.status_code != 200 or data.get("error"):
             err = data.get("error") or f"HTTP {r.status_code}"
             if "hasn't returned any results" in err:
@@ -262,13 +269,15 @@ def google_jobs(query, location, api_key, pages=1, log=print):
             return
 
 
-def adzuna(query, location, app_id, app_key, pages=1, max_days_old=14, log=print):
+def adzuna(query, location, app_id, app_key, pages=1, max_days_old=14, log=print, radius_km=None):
     """Adzuna job search (collects listings from many US job boards)."""
     for page in range(1, max(1, pages) + 1):
         params = {"app_id": app_id, "app_key": app_key, "what": query + (" remote" if location == "Remote" else ""),
                   "results_per_page": 50, "max_days_old": max_days_old, "content-type": "application/json"}
         if location and location != "Remote":
             params["where"] = location
+            if radius_km:
+                params["distance"] = radius_km
         r = requests.get(f"https://api.adzuna.com/v1/api/jobs/us/search/{page}", params=params,
                          headers=UA, timeout=60)
         if r.status_code in (401, 403):
@@ -335,8 +344,13 @@ def discover(config, log=print, keys=None):
     srch = config["search"]
     src = srch.get("sources", {})
     queries = srch.get("queries") or srch["title_keywords"][:3]
-    places = parse_locations(srch.get("location", ""))
-    if any(places):
+    places, area = search_places(srch)
+    radius_km = round(area["miles"] * 1.609) if area else None
+    if area:
+        log(f"  Searching within {area['miles']} miles of {area['label']}" + (" (plus remote jobs)" if area["remote"] else ""))
+    elif srch.get("where_mode") == "radius":
+        log(f"  ! Couldn't find '{(srch.get('radius') or {}).get('center', '')}'. Use a ZIP code or 'City, ST'. Searching without a location.")
+    if any(places) and not area:
         log(f"  Searching in: {', '.join(p or 'anywhere' for p in places)}")
     config.setdefault("_bad_boards", [])
     out = []
@@ -350,7 +364,8 @@ def discover(config, log=print, keys=None):
             for where in places:
                 tag = f"'{q}'" + (f" in {where}" if where else "")
                 try:
-                    found = [j for j in google_jobs(q, where, keys["serpapi_key"], srch.get("google_pages", 1), log)
+                    found = [j for j in google_jobs(q, where, keys["serpapi_key"], srch.get("google_pages", 1), log,
+                                                    radius_km=radius_km)
                              if not _excluded(j.title, srch)]
                     log(f"  Google Jobs {tag}: {len(found)} jobs")
                     out.extend(found)
@@ -362,18 +377,19 @@ def discover(config, log=print, keys=None):
                 tag = f"'{q}'" + (f" in {where}" if where else "")
                 try:
                     found = [j for j in adzuna(q, where, keys["adzuna_app_id"], keys["adzuna_app_key"],
-                                               srch.get("adzuna_pages", 1), log=log) if not _excluded(j.title, srch)]
+                                               srch.get("adzuna_pages", 1), log=log, radius_km=radius_km)
+                             if not _excluded(j.title, srch)]
                     log(f"  Adzuna {tag}: {len(found)} jobs")
                     out.extend(found)
                 except Exception as e:  # noqa: BLE001
                     log(f"  ! Adzuna {tag}: {e}")
     if not src.get("company_boards", True):
-        return _dedupe(out)
+        return _within(_dedupe(out), area, log)
     for source, slugs in config["boards"].items():
         for slug in slugs or []:
             if source == "workday":
                 try:
-                    found = list(workday(slug, queries, places, srch, log=log))
+                    found = list(workday(slug, queries, () if area else places, srch, log=log))
                     wb = workday_board(slug)
                     log(f"  Workday {wb[0]}/{wb[2] if wb else slug}: {len(found)} jobs match your titles and places")
                     out.extend(found)
@@ -394,10 +410,53 @@ def discover(config, log=print, keys=None):
                     log(f"  ! {source}/{slug}: {e}")
                 continue
             kept = [j for j in jobs if title_ok(j.title, config["search"])
-                    and location_ok(j.location, config["search"])]
+                    and (area or location_ok(j.location, config["search"]))]
             log(f"  {source}/{slug}: {len(jobs)} jobs, {len(kept)} match title+location")
             out.extend(kept)
-    return _dedupe(out)
+    return _within(_dedupe(out), area, log)
+
+
+def search_places(srch):
+    """(places to search, radius area or None). Radius area: {lat, lon, miles, label, remote}."""
+    if srch.get("where_mode") == "radius":
+        import geo
+        rad = srch.get("radius") or {}
+        c = geo.center(rad.get("center", ""))
+        if c:
+            area = {"lat": c[0], "lon": c[1], "label": c[2], "miles": int(rad.get("miles") or 25),
+                    "remote": bool(rad.get("remote"))}
+            return [c[2]] + (["Remote"] if area["remote"] else []), area
+        return [""], None
+    return parse_locations(srch.get("location", "")), None
+
+
+def _within(jobs, area, log=print):
+    """Keep jobs inside the radius (and remote ones if wanted); note each job's distance."""
+    if not area:
+        return jobs
+    import geo
+    kept, far, unknown = [], 0, 0
+    for j in jobs:
+        if geo.is_remote(j.location, j.title):
+            j.extra["distance"] = "Remote"
+            if area["remote"]:
+                kept.append(j)
+            continue
+        pt = geo.locate(j.location)
+        if not pt:
+            j.extra["distance"] = "?"
+            unknown += 1
+            kept.append(j)   # can't tell where it is: keep it rather than lose it
+            continue
+        d = geo.miles((area["lat"], area["lon"]), pt)
+        if d <= area["miles"]:
+            j.extra["distance"] = f"{round(d)} mi"
+            kept.append(j)
+        else:
+            far += 1
+    log(f"  {len(kept)} jobs within {area['miles']} miles" + (f" ({far} farther away left out)" if far else "")
+        + (f"; {unknown} with no clear location kept" if unknown else ""))
+    return kept
 
 
 def _excluded(title, cfg):
