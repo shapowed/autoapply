@@ -321,9 +321,10 @@ function resultHTML(r) {
     <label class="f">The job mentions, not on your resume <small>· if you really have one of these, add it in My resume and re-tailor</small></label>
     <div class="chips">${r.missing.map(m => `<span class="chip">${esc(m)}</span>`).join("") || '<span class="muted small">Nothing, you cover it all.</span>'}</div>
     <div class="row" style="margin-top:20px">
-      <a class="btn" href="/files/${encodeURIComponent(r.pdf)}" target="_blank">View resume</a>
-      <a class="btn" href="/files/${encodeURIComponent(r.pdf)}?dl=1">Download PDF</a>
-      <a class="btn" href="/files/${encodeURIComponent(r.docx)}?dl=1">Download Word</a>
+      <a class="btn" href="/resume/${r.id}.pdf" target="_blank">View resume</a>
+      <a class="btn" href="/resume/${r.id}.pdf?dl=1">Download PDF</a>
+      <a class="btn" href="/resume/${r.id}.docx?dl=1">Download Word</a>
+      ${state.is_remote ? "" : `<button class="btn ghost" onclick="api('/api/jobs/${r.id}/reveal',{method:'POST'}).catch(e=>toast(e.message))">Show in folder</button>`}
       <span style="flex:1"></span>
       ${r.can_apply ? `<button class="btn primary" onclick="applyJob('${r.id}')">${state.is_remote ? "Fill out on my computer" : "Fill out application"}${r.source === "workday" ? " (beta)" : ""} →</button>`
                     : (r.extra?.apply_options?.length
@@ -378,7 +379,7 @@ async function loadApps() {
       ${scoreRing(j.score, true)}
       <div class="grow"><div class="t">${esc(j.title)}</div><div class="small muted">${esc(j.extra?.company_name || j.company)} · ${esc(j.date)}</div></div>
       ${pill(j.status)}
-      <a class="btn small" href="/files/${encodeURIComponent(j.pdf)}" target="_blank">Resume</a>
+      <a class="btn small" href="/resume/${j.id}.pdf" target="_blank">Resume</a>
       ${j.can_apply && !["submitted","interview","rejected"].includes(j.status) ? `<button class="btn small primary" onclick="applyJob('${j.id}');show('apply');renderResultById('${j.id}')">Apply</button>` : ""}
       <select class="btn small" style="width:auto" onchange="setStatus('${j.id}',this.value)">
         ${Object.keys(STATUS).filter(s => s !== "applying").map(s => `<option value="${s}" ${s === j.status ? "selected" : ""}>${STATUS[s]}</option>`).join("")}
@@ -541,6 +542,9 @@ async function loadSettings() {
   const sel = (k, label, opts) => `<div><label class="f">${label}</label><select data-a="${k}"><option value="">Ask me each time</option>${opts.map(([v, t]) => `<option value="${v}" ${a[k] === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>`;
   const field = (k, label, ph = "") => `<div><label class="f">${label}</label><input type="text" data-a="${k}" value="${esc(a[k])}" placeholder="${ph}"></div>`;
   $("#settingsForm").innerHTML = `
+  <div class="card local-only"><h2>Where resumes are saved</h2>
+    <div id="folderCard" class="small muted">Loading…</div>
+  </div>
   <div class="card"><h2>Updates</h2><div id="updateCard" class="small muted">Checking…</div></div>
   <div class="card"><h2>Appearance</h2><div class="tabs" id="themeTabs" style="margin:0"></div></div>
   <div class="card" id="phoneCard"></div>
@@ -612,7 +616,7 @@ async function loadSettings() {
   </div>
   <div class="row"><button class="btn primary" onclick="saveSettings()">Save settings</button></div>`;
   $("#minScore").oninput = e => $("#minV").textContent = e.target.value;
-  drawPhone(); drawTheme(); drawUpdateCard(); if (!state.is_remote) loadWdAccounts();
+  drawPhone(); drawTheme(); drawUpdateCard(); if (!state.is_remote) loadFolder(); if (!state.is_remote) loadWdAccounts();
 }
 function collectSettings() {
   const c = settings.config, split = v => v.split(/[,\n]/).map(x => x.trim()).filter(Boolean);
@@ -724,6 +728,28 @@ async function quitApp() {
   if (!confirm("Quit AutoApply? Your phone won't be able to reach it until you open it again.")) return;
   await api("/api/quit", {method: "POST"}).catch(() => {});
   document.body.innerHTML = '<div class="empty" style="padding-top:30vh"><h1>AutoApply is closed</h1><p class="muted">Open it again from your Applications folder, Start menu or desktop shortcut.</p></div>';
+}
+
+/* ---------- resume folder ---------- */
+function drawFolder(f) {
+  $("#folderCard").innerHTML = `<div style="font-size:14px;color:var(--ink);word-break:break-all"><b>${esc(f.dir)}</b>${f.default ? ' <span class="muted">(default)</span>' : ""}</div>
+    <p style="margin:6px 0 0">Each job gets its own folder, and the file is always named the same way, for example:<br><code style="word-break:break-all">${esc(f.example)}</code></p>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary small" onclick="chooseFolder(this)">Choose folder…</button>
+      <button class="btn small" onclick="api('/api/open-folder',{method:'POST'})">Open folder</button>
+      ${f.default ? "" : `<button class="btn ghost small" onclick="setFolder({reset:true})">Use default</button>`}
+    </div>
+    <details style="margin-top:10px"><summary class="small">Or type a folder path</summary>
+      <div class="row" style="margin-top:8px"><input type="text" id="folderPath" placeholder="~/Documents/Job Applications" style="flex:1"><button class="btn small" onclick="setFolder({dir:$('#folderPath').value})">Save</button></div></details>
+    <p class="small muted">Applies to new resumes. Resumes you've already made stay where they are.</p>`;
+}
+async function loadFolder() { try { drawFolder(await api("/api/resume-folder")); } catch (e) {} }
+async function setFolder(body) {
+  try { drawFolder(await api("/api/resume-folder", {method: "POST", json: body})); toast("Saved"); } catch (e) { toast(e.message); }
+}
+async function chooseFolder(btn) {
+  btn.innerHTML = '<span class="spinner"></span> Pick a folder in the window that opened…';
+  try { drawFolder(await api("/api/resume-folder", {method: "POST", json: {choose: true}})); } catch (e) { toast(e.message); loadFolder(); }
 }
 
 /* ---------- workday accounts ---------- */

@@ -1,4 +1,4 @@
 {
-  "version": "1.3.3",
-  "notes": "Fixed Ashby and Lever applications not filling when the link came from Google Jobs (it opened the description page instead of the form). Also: Yes/No button questions are answered, the resume goes into the right upload box, and updates now show up within about 15 minutes."
+  "version": "1.4.0",
+  "notes": "Choose where resumes are saved (Settings → Where resumes are saved). Every resume is now named FirstName-LastName-Resume.pdf, in its own folder per job, and downloads use that name too."
 }

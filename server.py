@@ -111,19 +111,49 @@ def err(msg, code=400):
 
 
 # ------------------------------------------------------------------ core action
+def resume_dir(cfg=None):
+    """Where tailored resumes go: the folder chosen in Settings, else the default."""
+    d = ((cfg or load_cfg()).get("output") or {}).get("dir") or ""
+    d = os.path.expanduser(d) if d else OUT
+    try:
+        os.makedirs(d, exist_ok=True)
+        return d
+    except OSError:
+        return OUT
+
+
+def resume_filename(profile, ext):
+    """'Brandon Lagman' -> 'Brandon-Lagman-Resume.pdf'"""
+    words = [re.sub(r"[^A-Za-z0-9'-]", "", w) for w in (profile.get("name") or "").split()]
+    words = [w for w in words if w]
+    name = "-".join([words[0], words[-1]] if len(words) > 1 else words)
+    return f"{name}-Resume.{ext}" if name else f"Resume.{ext}"
+
+
+def job_folder_name(job):
+    company = job.extra.get("company_name") or (job.company.split(".")[0].title() if job.source == "workday" else job.company)
+    raw = f"{company} - {job.title}".strip(" -")
+    return re.sub(r"\s+", " ", re.sub(r'[\\/:*?"<>|\n\r\t]+', " ", raw)).strip()[:90] or "Job"
+
+
 def make_resume(job):
     profile, cfg = load_profile(), load_cfg()
     load_key()
     s, matched, missing = score(job, profile, cfg["search"])
     tailored, method = tailor(profile, job, cfg, log=lambda *_: None)
-    base = f"{slug(profile['name'])}_Resume_{slug(job.company)}_{slug(job.title)}"
-    pdf, size = render_pdf_one_page(tailored, os.path.join(OUT, base + ".pdf"))
-    render_docx(tailored, os.path.join(OUT, base + ".docx"), size)
+    folder = os.path.join(resume_dir(cfg), job_folder_name(job))
+    os.makedirs(folder, exist_ok=True)
+    pdf_path = os.path.join(folder, resume_filename(profile, "pdf"))
+    docx_path = os.path.join(folder, resume_filename(profile, "docx"))
+    pdf, size = render_pdf_one_page(tailored, pdf_path)
+    render_docx(tailored, docx_path, size)
+    base = os.path.splitext(os.path.basename(pdf_path))[0]
     jid = jid_for(job)
     db = load_db()
     prev = db.get(jid, {})
     rec = {**asdict(job), "id": jid, "score": s, "matched": matched[:25], "missing": missing[:25],
            "method": method, "pdf": base + ".pdf", "docx": base + ".docx",
+           "pdf_path": pdf_path, "docx_path": docx_path, "folder": folder,
            "can_apply": job.source in ("greenhouse", "lever", "ashby", "workday"),
            "status": prev.get("status", "ready"), "apply_msg": prev.get("apply_msg", ""),
            "date": prev.get("date", dt.date.today().isoformat()),
@@ -187,7 +217,7 @@ def is_local():
 
 
 OPEN_PATHS = ("/login", "/static/", "/manifest.webmanifest")
-LOCAL_ONLY = ("/api/phone", "/api/quit", "/api/open-folder", "/api/test-key", "/api/workday")
+LOCAL_ONLY = ("/api/phone", "/api/quit", "/api/open-folder", "/api/test-key", "/api/workday", "/api/resume-folder")
 
 
 @app.before_request
@@ -319,15 +349,88 @@ def quit_app():
 
 @app.post("/api/open-folder")
 def open_folder():
+    _open_in_file_manager(resume_dir())
+    return jsonify(ok=True)
+
+
+def _open_in_file_manager(path, select=None):
+    try:
+        _open_in_file_manager_(path, select)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _open_in_file_manager_(path, select=None):
     import subprocess
     import sys
     if sys.platform == "darwin":
-        subprocess.Popen(["open", OUT])
+        subprocess.Popen(["open", "-R", select] if select else ["open", path])
     elif os.name == "nt":
-        os.startfile(OUT)  # noqa: S606
+        subprocess.Popen(["explorer", "/select,", select]) if select else os.startfile(path)  # noqa: S606
     else:
-        subprocess.Popen(["xdg-open", OUT])
-    return jsonify(ok=True)
+        subprocess.Popen(["xdg-open", path])
+
+
+def _choose_folder_dialog(start):
+    """Show the computer's own 'choose a folder' window. Returns the path, or '' if cancelled."""
+    import subprocess
+    import sys
+    prompt = "Choose where AutoApply saves your tailored resumes"
+    try:
+        if sys.platform == "darwin":
+            script = (f'set f to choose folder with prompt "{prompt}" default location (POSIX file "{start}")\n'
+                      'POSIX path of f')
+            r = subprocess.run(["osascript", "-e", 'tell application "System Events" to activate', "-e", script],
+                               capture_output=True, text=True, timeout=600)
+            return r.stdout.strip()
+        if os.name == "nt":
+            ps = ("Add-Type -AssemblyName System.Windows.Forms;"
+                  "$o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true};"
+                  "$f=New-Object System.Windows.Forms.FolderBrowserDialog;"
+                  f"$f.Description='{prompt}';$f.SelectedPath='{start}';"
+                  "if($f.ShowDialog($o) -eq 'OK'){$f.SelectedPath}")
+            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps],
+                               capture_output=True, text=True, timeout=600, creationflags=0x08000000)
+            return r.stdout.strip()
+        r = subprocess.run(["zenity", "--file-selection", "--directory", f"--title={prompt}", f"--filename={start}/"],
+                           capture_output=True, text=True, timeout=600)
+        return r.stdout.strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+@app.get("/api/resume-folder")
+def get_resume_folder():
+    d = resume_dir()
+    return jsonify({"dir": d, "default": os.path.abspath(d) == os.path.abspath(OUT),
+                    "example": os.path.join(d, "Acme - IT Support Analyst", resume_filename(load_profile() or {}, "pdf"))})
+
+
+@app.post("/api/resume-folder")
+def set_resume_folder():
+    body = request.get_json() or {}
+    if body.get("reset"):
+        path = ""
+    elif body.get("choose"):
+        path = _choose_folder_dialog(resume_dir())
+        if not path:
+            return get_resume_folder()   # cancelled
+    else:
+        path = (body.get("dir") or "").strip()
+    if path:
+        path = os.path.expanduser(path.rstrip("/\\") or path)
+        try:
+            os.makedirs(path, exist_ok=True)
+            probe = os.path.join(path, ".autoapply-write-test")
+            open(probe, "w").close()
+            os.remove(probe)
+        except OSError as e:
+            return err(f"AutoApply can't save to that folder: {e.strerror or e}. "
+                       "On a Mac, allow access if asked (System Settings → Privacy & Security → Files and Folders).")
+    cfg = load_cfg()
+    cfg.setdefault("output", {})["dir"] = path
+    write_yaml(CONFIG, cfg)
+    return get_resume_folder()
 
 
 # ------------------------------------------------------------------ routes: app state
@@ -609,7 +712,7 @@ def apply_route(jid):
     def run():
         applying["busy"] = True
         try:
-            apply_one(job_from_record(r), os.path.join(OUT, r["pdf"]), load_cfg(), load_profile(), on_status,
+            apply_one(job_from_record(r), record_file(r, "pdf") or os.path.join(OUT, r["pdf"]), load_cfg(), load_profile(), on_status,
                       accounts=load_secrets().get("workday_accounts", {}), save_account=save_workday_account)
         except Exception as e:  # noqa: BLE001
             update_job(jid, status="ready", apply_msg=f"Couldn't open the browser: {e}")
@@ -624,6 +727,33 @@ def apply_route(jid):
 @app.get("/files/<path:name>")
 def files(name):
     return send_from_directory(OUT, name, as_attachment=request.args.get("dl") == "1")
+
+
+def record_file(r, ext):
+    p = r.get(f"{ext}_path") or os.path.join(OUT, r.get(ext, ""))
+    return p if os.path.exists(p) else None
+
+
+@app.get("/resume/<jid>.<ext>")
+def resume_file(jid, ext):
+    r = load_db().get(jid)
+    if not r or ext not in ("pdf", "docx"):
+        return err("Not found", 404)
+    p = record_file(r, ext)
+    if not p:
+        return err("That resume file was moved or deleted. Click 'Re-tailor' to make it again.", 404)
+    from flask import send_file
+    return send_file(p, as_attachment=request.args.get("dl") == "1", download_name=os.path.basename(p), max_age=0)
+
+
+@app.post("/api/jobs/<jid>/reveal")
+def reveal_job_file(jid):
+    r = load_db().get(jid)
+    p = r and record_file(r, "pdf")
+    if not p or not is_local():
+        return err("Not available.", 404)
+    _open_in_file_manager(os.path.dirname(p), select=p)
+    return jsonify(ok=True)
 
 
 # ------------------------------------------------------------------ routes: job search
