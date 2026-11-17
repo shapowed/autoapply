@@ -828,6 +828,22 @@ def apply_route(jid):
     return jsonify(load_db()[jid])
 
 
+_go_cache = {}
+
+
+@app.get("/go")
+def go():
+    """Open a job link without the middleman spam: resolve to the employer's own page, then redirect."""
+    from flask import redirect
+    from jobs import resolve_direct
+    u = request.args.get("u", "")
+    if not re.match(r"^https?://", u):
+        return err("Not a web link.")
+    if u not in _go_cache:
+        _go_cache[u] = resolve_direct(u)
+    return redirect(_go_cache[u], code=302)
+
+
 @app.get("/files/<path:name>")
 def files(name):
     return send_from_directory(OUT, name, as_attachment=request.args.get("dl") == "1")

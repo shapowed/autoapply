@@ -265,6 +265,7 @@ const notice = (el, msg, kind = "") => { el.innerHTML = msg ? `<div class="notic
 const scoreColor = s => s >= 70 ? "var(--good)" : s >= 50 ? "var(--warn)" : "var(--bad)";
 const scoreRing = (s, sm) => `<div class="score ${sm ? "sm" : ""}" style="--v:${s};--c:${scoreColor(s)}"><b>${s}</b></div>`;
 const STATUS = {ready: "Resume ready", applying: "Application open", check: "Did you submit?", submitted: "Submitted", interview: "Interview", rejected: "Rejected", skipped: "Skipped"};
+const goLink = u => "/go?u=" + encodeURIComponent(u || "");
 const pill = s => `<span class="pill ${s}">${STATUS[s] || s}</span>`;
 let state = {}, profile = null, settings = null;
 
@@ -331,8 +332,8 @@ function resultHTML(r) {
       <span style="flex:1"></span>
       ${r.can_apply ? `<button class="btn primary" onclick="applyJob('${r.id}')">${state.is_remote ? "Fill out on my computer" : "Fill out application"}${r.source === "workday" ? " (beta)" : ""} →</button>`
                     : (r.extra?.apply_options?.length
-                        ? r.extra.apply_options.slice(0, 3).map((o, i) => `<a class="btn ${i ? "" : "primary"}" href="${esc(o.link)}" target="_blank">${esc(o.title || "Apply")} →</a>`).join("")
-                        : (r.url ? `<a class="btn primary" href="${esc(r.url)}" target="_blank">Open job posting →</a>` : ""))}
+                        ? r.extra.apply_options.slice(0, 3).map((o, i) => `<a class="btn ${i ? "" : "primary"}" href="${goLink(o.link)}" target="_blank">${esc(o.title || "Apply")} →</a>`).join("")
+                        : (r.url ? `<a class="btn primary" href="${goLink(r.extra?.direct_url || r.url)}" target="_blank">Open job posting →</a>` : ""))}
     </div>
     <div class="small muted" style="margin-top:10px">${r.method === "claude" ? "Reworded with AI and checked against your master resume." : "Reordered for this job. Add an API key in Settings for AI rewording."}</div>
     <div class="apply-status">${statusBox(r)}</div>
@@ -500,7 +501,7 @@ async function pollSearch() {
       <div class="grow"><div class="t">${esc(r.title)}</div><div class="small muted">${esc(r.company)} · ${esc(r.location)}${r.posted ? " · " + esc(r.posted) : ""}</div>
         <div class="chips" style="margin-top:4px">${r.new ? '<span class="chip good">New</span>' : ""}<span class="chip">via ${esc(r.via)}</span>${r.can_apply ? '<span class="chip good">AutoApply can fill this out</span>' : ""}${r.snippet ? '<span class="chip" title="Adzuna only shares a preview. The real score is calculated when you click Make resume.">rough score</span>' : ""}</div></div>
       ${r.already ? pill(r.already) : `<button class="btn small primary" onclick="tailorFound('${r.id}',this)">Make resume</button>`}
-      <a class="btn small ghost" href="${esc(r.url)}" target="_blank">View</a></div>`).join("")}</div>` : "";
+      <a class="btn small ghost" href="${goLink(r.url)}" target="_blank">View</a></div>`).join("")}</div>` : "";
   clearTimeout(searchTimer);
   if (s.running) searchTimer = setTimeout(pollSearch, 1200);
 }

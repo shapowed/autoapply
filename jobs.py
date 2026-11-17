@@ -108,19 +108,116 @@ def parse_locations(text, limit=3):
     return out[:limit] or [""]
 
 
+# Middleman job sites that wrap the real posting in ads/popups/sign-up walls
+SPAMMY = ("adzuna.", "jooble.", "lensa.", "bebee.", "talent.com", "jobrapido.", "careerjet.", "joblist.", "whatjobs.",
+          "jobsora.", "learn4good.", "jobilize.", "recruit.net", "tallo.", "jobsearcher.", "jobright.", "salary.com",
+          "simplyhired.", "neuvoo.", "jobs2careers.", "myjobhelper.", "jobcase.", "snagajob.", "ladders.", "jobted.",
+          "jobleads.", "teal.com", "hiring.cafe", "jobgether.", "builtin.", "glassdoor.com/job-listing/", "monster.",
+          "careerbuilder.", "dice.com", "mediabistro.", "jobzmall.", "trabajo.org", "ziprecruiter.")
+TRUSTED_BOARDS = ("linkedin.com", "indeed.com", "glassdoor.com", "wellfound.com", "handshake")
+ATS_HOSTS = ("greenhouse.io", "lever.co", "ashbyhq.com", "myworkdayjobs.com", "myworkdaysite.com", "icims.com",
+             "smartrecruiters.com", "jobvite.com", "workable.com", "taleo.net", "successfactors.", "bamboohr.com",
+             "applytojob.com", "paylocity.com", "ultipro.com", "ukg.net", "adp.com", "oraclecloud.com",
+             "dayforcehcm.com", "recruitee.com", "breezy.hr", "jazzhr.com", "pinpointhq.com", "teamtailor.com",
+             "rippling.com", "eightfold.ai", "phenompeople.com", "avature.net", "csod.com", "brassring.com")
+
+
+def _host(url):
+    from urllib.parse import urlparse
+    try:
+        return urlparse(url).netloc.lower() + urlparse(url).path.lower()
+    except ValueError:
+        return ""
+
+
+def is_spammy(url):
+    h = _host(url)
+    return any(s in h for s in SPAMMY) and not any(a in h for a in ATS_HOSTS)
+
+
+def link_rank(url):
+    """0 = application form we can fill, 1 = other employer system / company site,
+    2 = LinkedIn / Indeed / Glassdoor, 3 = middleman spam sites."""
+    try:
+        parse_job_url(url)
+        return 0
+    except ValueError:
+        pass
+    h = _host(url)
+    if any(a in h for a in ATS_HOSTS):
+        return 1
+    if is_spammy(url):
+        return 3
+    if any(b in h for b in TRUSTED_BOARDS):
+        return 2
+    return 1
+
+
+def clean_url(url):
+    """Drop tracking codes (utm_*, click ids); keep everything a site needs."""
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+    try:
+        p = urlparse(url)
+        q = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
+             if not re.match(r"^(utm_|gclid$|fbclid$|msclkid$|mc_[ce]id$|_hs|trk$|refId$|trackingId$)", k, re.I)]
+        return urlunparse(p._replace(query=urlencode(q)))
+    except ValueError:
+        return url
+
+
+BROWSER_UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/131.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml"}
+
+
+def _links_in(html, base):
+    from urllib.parse import urljoin
+    found = []
+    for rx in (r'http-equiv=["\']?refresh["\']?[^>]*content=["\'][^"\']*url=([^"\'>]+)',
+               r'(?:window\.)?location(?:\.href)?\s*=\s*["\']([^"\']+)',
+               r'location\.(?:replace|assign)\(\s*["\']([^"\']+)',
+               r'"(?:url|redirectUrl|applyUrl|apply_url|jobUrl|targetUrl|destination)"\s*:\s*"(https?:[^"]+)"',
+               r'href=["\'](https?://[^"\'#]+)'):
+        for m in re.finditer(rx, html or "", re.I):
+            u = urljoin(base, m.group(1).replace("\\/", "/").replace("&amp;", "&").strip())
+            if u.startswith("http"):
+                found.append(u)
+    return found
+
+
+def resolve_direct(url, timeout=12, _depth=0):
+    """Follow a job link past middleman sites to the employer's own posting. Best effort: if nothing
+    better turns up, returns the original link (minus tracking codes)."""
+    if not url or not is_spammy(url) or _depth > 2:
+        return clean_url(url)
+    try:
+        r = requests.get(url, headers=BROWSER_UA, timeout=timeout, allow_redirects=True)
+    except Exception:  # noqa: BLE001
+        return clean_url(url)
+    if not is_spammy(r.url):
+        return clean_url(r.url)
+    cands = [u for u in _links_in(r.text[:400000], r.url) if _host(u) != _host(r.url)]
+    best = sorted((u for u in cands if not is_spammy(u)), key=link_rank)
+    best = [u for u in best if link_rank(u) <= 1 and (link_rank(u) == 0 or re.search(r"job|career|position|opening|apply|req", u, re.I))]
+    if best:
+        return clean_url(best[0])
+    nxt = next((u for u in cands if is_spammy(u) and re.search(r"/(land|redirect|apply|go|out|click)", u, re.I)), None)
+    return resolve_direct(nxt, timeout, _depth + 1) if nxt else clean_url(r.url)
+
+
+def sort_apply_options(options):
+    """Direct links first, middleman sites hidden unless they're all there is."""
+    opts = [o for o in options if o.get("link")]
+    opts.sort(key=lambda o: link_rank(o["link"]))
+    good = [o for o in opts if link_rank(o["link"]) < 3]
+    return good or opts
+
+
 def _best_apply(options):
-    """From a job's 'Apply on …' links pick: an ATS form we can fill > the company's own site > anything."""
-    links = [o for o in options if o.get("link")]
-    for o in links:
-        try:
-            parse_job_url(o["link"])
-            return o, True
-        except ValueError:
-            pass
-    for o in links:
-        if not any(b in o["link"].lower() for b in BIG_BOARDS):
-            return o, False
-    return (links[0] if links else {}), False
+    """From a job's 'Apply on …' links pick: an ATS form we can fill > the company's own site > big boards > middlemen."""
+    opts = sort_apply_options(options)
+    if not opts:
+        return {}, False
+    return opts[0], link_rank(opts[0]["link"]) == 0
 
 
 def _ats_job_from(link, title, company_name, location, description, extra):
@@ -149,7 +246,8 @@ def google_jobs(query, location, api_key, pages=1, log=print):
             options = j.get("apply_options") or []
             best, fillable = _best_apply(options)
             extra = {"via": (j.get("via") or "").replace("via ", ""), "company_name": j.get("company_name", ""),
-                     "apply_options": [{"title": o.get("title", ""), "link": o.get("link", "")} for o in options][:6],
+                     "apply_options": [{"title": o.get("title", ""), "link": clean_url(o.get("link", ""))}
+                                       for o in sort_apply_options(options)][:6],
                      "posted": (j.get("detected_extensions") or {}).get("posted_at", "")}
             desc = j.get("description", "")
             if fillable:
@@ -194,7 +292,10 @@ def full_description(job, log=print):
     if not job.extra.get("snippet_only") or not job.url:
         return job
     try:
-        r = requests.get(job.url, headers=UA, timeout=20, allow_redirects=True)
+        direct = resolve_direct(job.url)
+        if direct != job.url:
+            job.extra["direct_url"] = direct
+        r = requests.get(direct, headers=BROWSER_UA, timeout=20, allow_redirects=True)
         # an ATS page we can read properly through its API?
         try:
             better = fetch_job(r.url)
@@ -202,6 +303,8 @@ def full_description(job, log=print):
             return better
         except Exception:  # noqa: BLE001
             pass
+        if not is_spammy(r.url):
+            job.url = clean_url(r.url)
         text = strip_html(re.sub(r"(?is)<(script|style|nav|header|footer)[^>]*>.*?</\1>", " ", r.text))
         if len(text) > len(job.description) + 300:
             job.description = text[:15000]

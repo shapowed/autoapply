@@ -1,4 +1,4 @@
 {
-  "version": "1.6.0",
-  "notes": "After tailoring, AutoApply now asks which missing keywords from the job you actually have, and adds the ones you check to your skills (for all resumes or just this one), then re-tailors. It never adds anything without asking."
+  "version": "1.7.0",
+  "notes": "Job links now skip spammy middleman sites (Adzuna, Lensa, Jooble, Talent.com…) and take you straight to the employer's own posting, without tracking codes. Direct company links are listed first, and jobs whose real link is Greenhouse, Lever, Ashby or Workday can now be filled out for you."
 }
