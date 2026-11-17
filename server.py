@@ -570,7 +570,7 @@ def run_update(open_browser=False):
         upd.update(state="installing", message=m)
     try:
         upd.update(state="installing", message="Starting…", error="")
-        updater.install(upd["latest"], progress)
+        updater.install(upd["latest"], progress, sha=upd.get("sha", ""))
         upd.update(state="restarting", message="Restarting AutoApply…")
         time.sleep(0.8)   # let the page see "restarting"
         updater.restart(open_browser=open_browser)

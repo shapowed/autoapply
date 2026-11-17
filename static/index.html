@@ -822,7 +822,7 @@ function drawUpdateCard() {
 async function startUpdate() {
   try { await api("/api/update", {method: "POST"}); } catch (e) { return toast(e.message); }
   const b = $("#updateBanner"); b.className = "notice info";
-  const target = upd.latest;
+  const target = upd.latest; let down = 0;
   const show = m => b.innerHTML = `<span class="spinner"></span> ${esc(m)}`;
   show("Updating…");
   const t = setInterval(async () => {
@@ -832,7 +832,12 @@ async function startUpdate() {
       const u = await fetch("/api/update").then(r => r.json());
       if (u.error && u.state === "idle") { clearInterval(t); b.className = "notice err"; b.textContent = u.error; return; }
       show(u.message || "Updating…");
-    } catch (e) { show("Restarting AutoApply…"); }   // server is restarting
+    } catch (e) {   // server is restarting
+      down = down || Date.now();
+      if (Date.now() - down > 45000) { clearInterval(t); b.className = "notice err";
+        b.innerHTML = "AutoApply installed the update but didn't restart by itself. Click <b>Quit AutoApply</b> (bottom left) and open it again."; return; }
+      show("Restarting AutoApply…");
+    }
   }, 1200);
 }
 

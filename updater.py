@@ -10,6 +10,7 @@ import io
 import json
 import os
 import py_compile
+import re
 import shutil
 import subprocess
 import sys
@@ -43,16 +44,52 @@ def vtuple(v):
     return tuple(out)
 
 
+def latest_commit(timeout=8):
+    """ID of the newest published snapshot. Files fetched by this ID are never stale copies."""
+    try:
+        r = requests.get(f"https://api.github.com/repos/{REPO}/commits/{BRANCH}", timeout=timeout,
+                         headers={"Accept": "application/vnd.github.sha"})
+        sha = r.text.strip() if r.ok else ""
+        return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def check(timeout=6):
-    """Return {current, latest, available, notes}. Raises on network trouble."""
-    r = requests.get(f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/updates.json",
-                     params={"t": int(time.time())}, timeout=timeout,
-                     headers={"Cache-Control": "no-cache"})
+    """Return {current, latest, available, notes, sha}. Raises on network trouble."""
+    sha = latest_commit()
+    if sha:
+        r = requests.get(f"https://raw.githubusercontent.com/{REPO}/{sha}/updates.json", timeout=timeout)
+    else:
+        r = requests.get(f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/updates.json",
+                         params={"t": int(time.time())}, timeout=timeout, headers={"Cache-Control": "no-cache"})
     r.raise_for_status()
     data = r.json()
     cur = local_version()
-    return {"current": cur, "latest": data.get("version", cur), "notes": data.get("notes", ""),
+    return {"current": cur, "latest": data.get("version", cur), "notes": data.get("notes", ""), "sha": sha,
             "available": vtuple(data.get("version", "0")) > vtuple(cur)}
+
+
+def _download(expected_version, sha, progress):
+    """Get the code zip for this version, waiting for GitHub to catch up if it's still publishing."""
+    for attempt in range(4):
+        url = (f"https://codeload.github.com/{REPO}/zip/{sha}" if sha
+               else f"https://codeload.github.com/{REPO}/zip/refs/heads/{BRANCH}")
+        r = requests.get(url, params=None if sha else {"t": int(time.time())}, timeout=180)
+        r.raise_for_status()
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        root = z.namelist()[0].split("/")[0] + "/"
+        try:
+            got = z.read(root + "VERSION").decode().strip()
+        except KeyError:
+            got = ""
+        if got == expected_version:
+            return z, root
+        if attempt < 3:
+            progress("GitHub is still publishing this update. Trying again in a few seconds…")
+            time.sleep(15)
+            sha = latest_commit() or sha
+    raise RuntimeError(f"GitHub is still publishing version {expected_version}. Try again in a couple of minutes.")
 
 
 def _wanted(rel):
@@ -63,13 +100,10 @@ def _wanted(rel):
     return rel.startswith(CODE_DIRS)
 
 
-def install(expected_version, progress=lambda msg: None):
+def install(expected_version, progress=lambda msg: None, sha=""):
     """Download, verify and install. Returns True if requirements changed."""
     progress("Downloading the update…")
-    r = requests.get(f"https://codeload.github.com/{REPO}/zip/refs/heads/{BRANCH}", timeout=180)
-    r.raise_for_status()
-    z = zipfile.ZipFile(io.BytesIO(r.content))
-    root = z.namelist()[0].split("/")[0] + "/"
+    z, root = _download(expected_version, sha, progress)
 
     stage = tempfile.mkdtemp(prefix="autoapply-update-")
     backup = tempfile.mkdtemp(prefix="autoapply-backup-")

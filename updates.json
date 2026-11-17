@@ -1,4 +1,4 @@
 {
-  "version": "1.5.0",
-  "notes": "Search results are now saved: they're still there after you close AutoApply, you can switch between your last 10 searches, and jobs you haven't seen before are marked New."
+  "version": "1.5.1",
+  "notes": "Fixed: Update now sometimes failed right after a new version came out. Updates now download the exact version and wait for GitHub to catch up instead of giving up."
 }
