@@ -546,6 +546,10 @@ async function loadSettings() {
     <div id="folderCard" class="small muted">Loading…</div>
   </div>
   <div class="card"><h2>Updates</h2><div id="updateCard" class="small muted">Checking…</div></div>
+  <div class="card local-only"><h2>Closing AutoApply</h2>
+    <label class="toggle" style="margin:0"><input type="checkbox" id="quitOnClose" onchange="api('/api/app-settings',{method:'PUT',json:{quit_on_close:this.checked}}).then(()=>toast('Saved'))">
+      <span><b>Quit AutoApply when I close its window</b><br><span class="small muted">Fully stops it about 20 seconds after you close the tab or browser, so it starts fresh (and up to date) next time. It stays running while an application window is open, a search is running, or phone access is on.</span></span></label>
+  </div>
   <div class="card"><h2>Appearance</h2><div class="tabs" id="themeTabs" style="margin:0"></div></div>
   <div class="card" id="phoneCard"></div>
   <div class="card local-only"><h2>AI rewording</h2>
@@ -616,7 +620,8 @@ async function loadSettings() {
   </div>
   <div class="row"><button class="btn primary" onclick="saveSettings()">Save settings</button></div>`;
   $("#minScore").oninput = e => $("#minV").textContent = e.target.value;
-  drawPhone(); drawTheme(); drawUpdateCard(); if (!state.is_remote) loadFolder(); if (!state.is_remote) loadWdAccounts();
+  drawPhone(); drawTheme(); drawUpdateCard();
+  if (!state.is_remote) api("/api/app-settings").then(a => { const c = $("#quitOnClose"); if (c) c.checked = a.quit_on_close; }).catch(() => {}); if (!state.is_remote) loadFolder(); if (!state.is_remote) loadWdAccounts();
 }
 function collectSettings() {
   const c = settings.config, split = v => v.split(/[,\n]/).map(x => x.trim()).filter(Boolean);
@@ -857,6 +862,13 @@ async function setPhone(body) { await api("/api/phone", {method: "POST", json: b
   api("/api/settings").then(s => settings = s);
   if (!state.setup_done) wizard();
   loadUpdate();
+  if (!state.is_remote) {   // let the app know this window is open; it quits shortly after the last one closes
+    const beat = () => fetch("/api/heartbeat", {method: "POST"}).catch(() => {});
+    beat(); setInterval(beat, 8000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) beat(); });
+    const bye = () => { try { navigator.sendBeacon("/api/bye") || fetch("/api/bye", {method: "POST", keepalive: true}); } catch (e) {} };
+    addEventListener("pagehide", bye); addEventListener("beforeunload", bye);
+  }
   const busy = (await api("/api/jobs")).find(j => j.status === "applying");
   if (busy) { renderResult(busy); watch(busy.id); }
 })();

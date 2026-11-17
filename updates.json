@@ -1,4 +1,4 @@
 {
-  "version": "1.4.0",
-  "notes": "Choose where resumes are saved (Settings → Where resumes are saved). Every resume is now named FirstName-LastName-Resume.pdf, in its own folder per job, and downloads use that name too."
+  "version": "1.4.1",
+  "notes": "Closing AutoApply's window now fully quits it (after about 20 seconds), so it always starts fresh and up to date. You can turn this off in Settings → Closing AutoApply."
 }

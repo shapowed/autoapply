@@ -596,6 +596,20 @@ def post_update():
     return jsonify(ok=True)
 
 
+@app.get("/api/app-settings")
+def get_app_settings():
+    a = load_cfg().get("app") or {}
+    return jsonify({"quit_on_close": a.get("quit_on_close", True)})
+
+
+@app.put("/api/app-settings")
+def put_app_settings():
+    cfg = load_cfg()
+    cfg.setdefault("app", {})["quit_on_close"] = bool((request.get_json() or {}).get("quit_on_close", True))
+    write_yaml(CONFIG, cfg)
+    return get_app_settings()
+
+
 @app.put("/api/update/auto")
 def set_auto_update():
     cfg = load_cfg()
@@ -874,6 +888,46 @@ def choose_port():
     raise SystemExit("No free port found for AutoApply.")
 
 
+# ------------------------------------------------------------------ quit when the window closes
+life = {"last_beat": 0.0, "bye_at": 0.0, "seen": False}
+
+
+@app.post("/api/heartbeat")
+def heartbeat():
+    if is_local():
+        life.update(last_beat=time.time(), bye_at=0.0, seen=True)
+    return jsonify(ok=True)
+
+
+@app.post("/api/bye")
+def bye():
+    if is_local():
+        life["bye_at"] = time.time()
+    return ("", 204)
+
+
+def _busy():
+    """Things that should keep AutoApply running even with no window open."""
+    return (applying["busy"] or search["running"] or upd["state"] != "idle"
+            or bool(load_secrets().get("phone_enabled")))
+
+
+def quit_watchdog():
+    """Fully quit (like the Quit button) once its window is closed: after the tab says goodbye and
+    doesn't come back within 20 s (a reload comes back), or if no open tab has checked in for ~100 s
+    (browsers still let background tabs check in about once a minute)."""
+    while True:
+        time.sleep(5)
+        if not life["seen"] or not (load_cfg().get("app") or {}).get("quit_on_close", True) or _busy():
+            continue
+        now = time.time()
+        closed = life["bye_at"] and now - life["bye_at"] > 20 and life["last_beat"] < life["bye_at"]
+        silent = now - life["last_beat"] > float(os.environ.get("AUTOAPPLY_QUIT_AFTER", "100"))
+        if closed or silent:
+            print("Window closed: quitting AutoApply.")
+            os._exit(0)
+
+
 def main():
     import sys
     port, running = choose_port()
@@ -892,6 +946,8 @@ def main():
         if upd["available"]:
             print(f"Updating {upd['current']} -> {upd['latest']}")
             run_update(open_browser=os.environ.get("AUTOAPPLY_NO_BROWSER") != "1")   # restarts on success
+    threading.Thread(target=quit_watchdog, daemon=True).start()
+
     def periodic_check():
         while True:
             time.sleep(15 * 60)
