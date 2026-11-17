@@ -219,10 +219,40 @@ def _wait_for_person(page, header, on_status, msg=None):
             return False
 
 
+def posting_url(job, fallback=""):
+    """Build the posting's address from the company's Workday site and the job's path, which is
+    always a full, valid link (Workday's own 'externalUrl' isn't always one)."""
+    m = re.match(r"^([\w-]+)\.(wd\d+)/([\w-]+)$", job.company or "")
+    if m and (job.job_id or "").startswith("/"):
+        tenant, wd, site = m.groups()
+        return f"https://{tenant}.{wd}.myworkdayjobs.com/{site}{job.job_id}"
+    return fallback
+
+
+def open_page(page, url):
+    """Go to a page; retry once; on failure show the reason in the window instead of a blank page."""
+    if not re.match(r"^https?://", url or ""):
+        raise RuntimeError(f"This job's link isn't a web address ({url or 'empty'}).")
+    last = None
+    for _ in range(2):
+        try:
+            page.goto(url, wait_until="commit", timeout=45000)
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=30000)
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        except Exception as e:  # noqa: BLE001
+            last = e
+            page.wait_for_timeout(1500)
+    raise RuntimeError(f"Couldn't load {url}: {str(last).splitlines()[0][:150]}")
+
+
 def run(page, job, apply_url, answers, resume_path, accounts, save_account, auto_submit, on_status):
     tenant = job.company.split(".")[0]
+    url = posting_url(job, apply_url)
     on_status("applying", "Opening the Workday posting…")
-    page.goto(apply_url, wait_until="domcontentloaded", timeout=60000)
+    open_page(page, url)
     page.wait_for_timeout(2500)
 
     if not _click(page, AID("adventureButton"), "Apply", timeout=8000):

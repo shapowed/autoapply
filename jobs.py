@@ -376,8 +376,10 @@ def workday_job(board, external_path, fallback_url=""):
     info = d.get("jobPostingInfo") or {}
     org = (d.get("hiringOrganization") or {}).get("name") or tenant.replace("-", " ").title()
     locs = [info.get("location", "")] + list(info.get("additionalLocations") or [])
+    canonical = f"https://{tenant}.{wd}.myworkdayjobs.com/{site}{external_path}"
+    ext = info.get("externalUrl") or ""
     return Job("workday", board, external_path, info.get("title", ""), "; ".join(l for l in locs if l),
-               info.get("externalUrl") or fallback_url, strip_html(info.get("jobDescription", "")),
+               ext if ext.startswith("http") else canonical, strip_html(info.get("jobDescription", "")),
                {"company_name": org, "via": "Workday", "posted": info.get("postedOn", ""),
                 "deadline": info.get("jobPostingEndDateAsText") or info.get("timeLeftToApply", ""),
                 "req_id": info.get("jobReqId", ""), "can_apply_now": info.get("canApply", True)})

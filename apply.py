@@ -256,6 +256,18 @@ def fill_form(page, answers, resume_path, log=print):
     return unfilled_required
 
 
+def show_problem(page, msg, url=""):
+    """Never leave a blank window: explain what happened right in it."""
+    import html as _h
+    try:
+        link = f'<p><a href="{_h.escape(url)}">Open the job page</a> to apply by hand.</p>' if url else ""
+        page.set_content(f"""<html><body style="font:16px -apple-system,system-ui,sans-serif;background:#121311;color:#ecebe6;padding:40px;max-width:640px">
+          <h2>AutoApply couldn't fill out this application</h2><p>{_h.escape(msg)}</p>{link}
+          <p style="color:#9c9b95">You can close this window. If this keeps happening, tell Claude what this page says.</p></body></html>""")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _launch(pw, headless):
     try:
         return pw.chromium.launch(headless=headless)
@@ -282,8 +294,13 @@ def apply_one(job, pdf, cfg, profile, on_status=print, accounts=None, save_accou
                 workday_apply.run(page, job, job.url, a, pdf, accounts or {}, save_account or (lambda *_: None),
                                   cfg["apply"].get("auto_submit", False), on_status)
             except Exception as e:  # noqa: BLE001
-                on_status("error", f"The Workday assistant got stuck: {str(e)[:160]}. "
-                                   f"The page is still open, so you can finish it by hand.")
+                import traceback
+                traceback.print_exc()
+                msg = f"The Workday assistant got stuck: {str(e)[:200]}"
+                on_status("error", msg + ". The window is still open, so you can finish by hand.")
+                if page.url in ("about:blank", "") or not page.url.startswith("http"):
+                    import workday_apply as _w
+                    show_problem(page, msg, _w.posting_url(job, job.url))
                 try:
                     page.wait_for_event("close", timeout=0)
                 except Exception:  # noqa: BLE001
@@ -293,7 +310,11 @@ def apply_one(job, pdf, cfg, profile, on_status=print, accounts=None, save_accou
             return
         try:
             on_status("opening", "Opening the application page...")
-            page.goto(apply_url(job), wait_until="networkidle", timeout=60000)
+            page.goto(apply_url(job), wait_until="domcontentloaded", timeout=60000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:  # noqa: BLE001
+                pass
             missing = fill_form(page, answers, pdf, log=lambda *_: None)
             if cfg["apply"]["auto_submit"] and not missing:
                 page.get_by_role("button", name=re.compile(r"submit", re.I)).first.click()
@@ -310,6 +331,10 @@ def apply_one(job, pdf, cfg, profile, on_status=print, accounts=None, save_accou
                 page.wait_for_event("close", timeout=0)  # wait until the user closes the tab
                 on_status("closed", "Window closed. Did you submit it?")
         except Exception as e:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            if page.url in ("about:blank", "") or not page.url.startswith("http"):
+                show_problem(page, f"Couldn't open the application page: {str(e)[:200]}", apply_url(job))
             on_status("error", f"Couldn't fill the form automatically: {str(e)[:160]}. "
                                f"The page is still open, so you can finish it by hand.")
             try:

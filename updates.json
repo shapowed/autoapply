@@ -1,4 +1,4 @@
 {
-  "version": "1.3.0",
-  "notes": "Workday applications (beta): \"Fill out application\" now works on Workday jobs. It signs in or creates your account, uploads your resume, fills each page, and stops at Review. Passwords it creates are in Settings → Workday accounts."
+  "version": "1.3.1",
+  "notes": "Fixed: Workday applications could open a blank window. AutoApply now always uses the job's full Workday link, and if a page ever fails to load, the window explains why instead of staying blank."
 }
