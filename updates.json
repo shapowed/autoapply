@@ -1,4 +1,4 @@
 {
-  "version": "1.1.1",
-  "notes": "Find jobs: you can now list several places in Where (e.g. \"New York, NY; Remote\"), and NYC boroughs are understood. Company names that don't exist get removed from your list automatically."
+  "version": "1.2.0",
+  "notes": "Workday support: paste a Workday job link to get a resume tailored to the full posting, and add companies' Workday career sites in Settings so Find jobs searches them."
 }

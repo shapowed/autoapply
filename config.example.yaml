@@ -31,6 +31,8 @@ boards:
   - peloton
   lever:
   - palantir
+  workday:
+  - pwc.wd3/US_Entry_Level_Careers
 search:
   locations:
   - New York

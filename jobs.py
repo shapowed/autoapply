@@ -268,6 +268,19 @@ def discover(config, log=print, keys=None):
         return _dedupe(out)
     for source, slugs in config["boards"].items():
         for slug in slugs or []:
+            if source == "workday":
+                try:
+                    found = list(workday(slug, queries, places, srch, log=log))
+                    wb = workday_board(slug)
+                    log(f"  Workday {wb[0]}/{wb[2] if wb else slug}: {len(found)} jobs match your titles and places")
+                    out.extend(found)
+                except Exception as e:  # noqa: BLE001
+                    if "404" in str(e) or "isn't a Workday" in str(e):
+                        config["_bad_boards"].append((source, slug))
+                        log(f"  ! Workday {slug}: couldn't find that Workday site, so it was removed from your list.")
+                    else:
+                        log(f"  ! workday/{slug}: {e}")
+                continue
             try:
                 jobs = list(FETCHERS[source](slug))
             except Exception as e:  # noqa: BLE001
@@ -309,8 +322,31 @@ URL_PATTERNS = [
 ]
 
 
+WORKDAY_RX = re.compile(r"([\w-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?([\w-]+)/(job|details)/([^?#]+)", re.I)
+WORKDAY_SITE_RX = re.compile(r"([\w-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?([\w-]+)", re.I)
+
+
+def workday_board(entry):
+    """'https://pwc.wd3.myworkdayjobs.com/US_Entry_Level_Careers' or 'pwc.wd3/US_Entry_Level_Careers'
+    -> ('pwc', 'wd3', 'US_Entry_Level_Careers'), or None."""
+    e = entry.strip()
+    m = WORKDAY_SITE_RX.search(e)
+    if m:
+        return m.group(1), m.group(2).lower(), m.group(3)
+    m = re.match(r"^([\w-]+)\.(wd\d+)/([\w-]+)$", e, re.I)
+    return (m.group(1), m.group(2).lower(), m.group(3)) if m else None
+
+
+def _wd_base(tenant, wd, site):
+    return f"https://{tenant}.{wd}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
+
+
 def parse_job_url(url, slug=None):
     """Return (source, company_slug, job_id) or raise ValueError with advice."""
+    m = WORKDAY_RX.search(url)
+    if m:
+        tenant, wd, site, _kind, path = m.groups()
+        return "workday", f"{tenant}.{wd.lower()}/{site}", "/job/" + path.strip("/")
     for source, rx in URL_PATTERNS:
         m = re.search(rx, url, re.I)
         if m:
@@ -329,8 +365,78 @@ def parse_job_url(url, slug=None):
         "    Or paste the description into jd.txt and run:  python main.py tailor jd.txt")
 
 
+def workday_job(board, external_path, fallback_url=""):
+    tenant, wd, site = workday_board(board)
+    r = requests.get(_wd_base(tenant, wd, site) + external_path,
+                     headers={**UA, "Accept": "application/json"}, timeout=30)
+    if r.status_code == 404:
+        raise ValueError("Workday says this posting is closed or doesn't exist.")
+    r.raise_for_status()
+    d = r.json()
+    info = d.get("jobPostingInfo") or {}
+    org = (d.get("hiringOrganization") or {}).get("name") or tenant.replace("-", " ").title()
+    locs = [info.get("location", "")] + list(info.get("additionalLocations") or [])
+    return Job("workday", board, external_path, info.get("title", ""), "; ".join(l for l in locs if l),
+               info.get("externalUrl") or fallback_url, strip_html(info.get("jobDescription", "")),
+               {"company_name": org, "via": "Workday", "posted": info.get("postedOn", ""),
+                "deadline": info.get("jobPostingEndDateAsText") or info.get("timeLeftToApply", ""),
+                "req_id": info.get("jobReqId", ""), "can_apply_now": info.get("canApply", True)})
+
+
+def workday(board, queries=(), places=(), search_cfg=None, max_details=30, log=print):
+    """Search one company's Workday career site. Board: 'tenant.wdN/Site' or the site's URL."""
+    parsed = workday_board(board)
+    if not parsed:
+        raise ValueError(f"'{board}' isn't a Workday career site link.")
+    tenant, wd, site = parsed
+    key = f"{tenant}.{wd}/{site}"
+    seen, postings = set(), []
+    for q in (queries or [""]):
+        for offset in (0, 20):
+            r = requests.post(_wd_base(tenant, wd, site) + "/jobs",
+                              json={"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": q},
+                              headers={**UA, "Accept": "application/json"}, timeout=30)
+            r.raise_for_status()
+            page = r.json().get("jobPostings") or []
+            for p in page:
+                if p.get("externalPath") and p["externalPath"] not in seen:
+                    seen.add(p["externalPath"])
+                    postings.append(p)
+            if len(page) < 20:
+                break
+    if search_cfg:   # cheap filter on titles before loading each job's details
+        postings = [p for p in postings if not _excluded(p.get("title", ""), search_cfg)]
+    for p in postings[:max_details]:
+        try:
+            j = workday_job(key, p["externalPath"],
+                            f"https://{tenant}.{wd}.myworkdayjobs.com/{site}{p['externalPath']}")
+        except Exception as e:  # noqa: BLE001
+            log(f"    (skipped one {tenant} job: {e})")
+            continue
+        if places and any(places) and not _place_ok(j.location, places):
+            continue
+        yield j
+
+
+def _place_ok(location, places):
+    loc = (location or "").lower()
+    for p in places:
+        if not p:
+            return True
+        if p == "Remote":
+            if "remote" in loc or "virtual" in loc:
+                return True
+            continue
+        city = p.split(",")[0].strip().lower()
+        if city and city in loc:
+            return True
+    return False
+
+
 def fetch_job(url, slug=None):
     source, company, job_id = parse_job_url(url, slug)
+    if source == "workday":
+        return workday_job(company, job_id, url.split("?")[0])
     if source == "greenhouse":
         r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{company}/jobs/{job_id}",
                          headers=UA, timeout=30)

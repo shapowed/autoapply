@@ -172,13 +172,13 @@ a.btn{color:var(--ink)}
       <div id="applyMsg"></div>
       <div class="row" style="margin-top:14px">
         <button class="btn primary lg" id="goBtn">Tailor my resume</button>
-        <span class="muted small" id="inputHint">Links from Greenhouse, Lever and Ashby can be filled out for you too.</span>
+        <span class="muted small" id="inputHint">Works with Workday, Greenhouse, Lever and Ashby links. The last three can be filled out for you too.</span>
       </div>
     </div>
     <div id="result"></div>
     <div class="card" id="howCard">
       <h2>Finding links that work</h2>
-      <p class="small muted" style="margin:0">On LinkedIn or Indeed, click <b>Apply</b> (not Easy Apply). If it opens a page on <b>greenhouse.io</b>, <b>lever.co</b> or <b>ashbyhq.com</b>, paste that link here and AutoApply will fill in the application. For any other site, paste the job description instead. You'll still get a tailored resume and can apply yourself.</p>
+      <p class="small muted" style="margin:0">On LinkedIn or Indeed, click <b>Apply</b> (not Easy Apply). If it opens a page on <b>myworkdayjobs.com</b>, <b>greenhouse.io</b>, <b>lever.co</b> or <b>ashbyhq.com</b>, paste that link here for a resume tailored to the full posting. For Greenhouse, Lever and Ashby, AutoApply also fills in the application. For any other site, paste the job description instead. You'll still get a tailored resume and can apply yourself.</p>
     </div>
   </section>
 
@@ -594,6 +594,7 @@ async function loadSettings() {
     <label class="f">Minimum fit score: <span id="minV">${s.min_score}</span></label><input type="range" min="0" max="100" value="${s.min_score}" id="minScore" style="width:100%;accent-color:var(--accent)">
     <label class="f">Companies to search <small>(the name from their job board URL, e.g. boards.greenhouse.io/<b>etsy</b>)</small></label>
     <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
+      <div style="grid-column:1/-1"><label class="f small">Workday <small>(paste the company's career site link, one per line, e.g. https://pwc.wd3.myworkdayjobs.com/US_Entry_Level_Careers)</small></label><textarea data-b="workday" rows="3">${esc((b.workday || []).join("\n"))}</textarea></div>
       <div><label class="f small">Greenhouse</label><textarea data-b="greenhouse" rows="5">${esc((b.greenhouse || []).join("\n"))}</textarea></div>
       <div><label class="f small">Lever</label><textarea data-b="lever" rows="5">${esc((b.lever || []).join("\n"))}</textarea></div>
       <div><label class="f small">Ashby</label><textarea data-b="ashby" rows="5">${esc((b.ashby || []).join("\n"))}</textarea></div>
