@@ -771,7 +771,41 @@ def reveal_job_file(jid):
 
 
 # ------------------------------------------------------------------ routes: job search
-search = {"running": False, "log": [], "results": [], "jobs": {}}
+search = {"running": False, "log": [], "results": [], "jobs": {}, "sid": None}
+SEARCHES = os.path.join(DATA, "searches.json")      # last 10 searches (what, where, results)
+FOUND = os.path.join(DATA, "found_jobs.json")       # full job details for those results
+KEEP_SEARCHES = 10
+
+
+def _load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def _save_json(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+
+
+def save_search(entry, jobs):
+    """Keep the newest searches and the job details they point to; drop the rest."""
+    with lock:
+        hist = _load_json(SEARCHES, [])
+        hist = ([entry] + [h for h in hist if h["id"] != entry["id"]])[:KEEP_SEARCHES]
+        found = _load_json(FOUND, {})
+        found.update({jid: asdict(j) for jid, j in jobs.items()})
+        keep = {r["id"] for h in hist for r in h["results"]}
+        _save_json(FOUND, {k: v for k, v in found.items() if k in keep})
+        _save_json(SEARCHES, hist)
+
+
+def _history():
+    return _load_json(SEARCHES, [])
 
 
 @app.post("/api/search")
@@ -780,9 +814,11 @@ def start_search():
         return err("Already searching.")
     cfg, profile = load_cfg(), load_profile()
     db = load_db()
+    srch = cfg.get("search") or {}
 
     def run():
-        search.update(running=True, log=[], results=[], jobs={})
+        sid = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        search.update(running=True, log=[], results=[], jobs={}, sid=sid)
         try:
             found = discover(cfg, log=lambda m: search["log"].append(m.strip()), keys=load_secrets())
             bad = cfg.pop("_bad_boards", [])
@@ -792,6 +828,7 @@ def start_search():
                     if slug in (saved.get("boards", {}).get(source) or []):
                         saved["boards"][source].remove(slug)
                 write_yaml(CONFIG, saved)
+            seen_before = {r["id"] for h in _history() for r in h["results"]}
             res = []
             for j in found:
                 s, matched, missing = score(j, profile, cfg["search"])
@@ -804,10 +841,13 @@ def start_search():
                             "via": j.extra.get("via") or j.source.title(), "posted": j.extra.get("posted", ""),
                             "can_apply": j.source in ("greenhouse", "lever", "ashby", "workday"),
                             "snippet": bool(j.extra.get("snippet_only")),
-                            "already": db.get(jid, {}).get("status")})
+                            "new": bool(seen_before) and jid not in seen_before})
             res.sort(key=lambda x: -x["score"])
             search["results"] = res
             search["log"].append(f"Done: {len(res)} matching jobs.")
+            save_search({"id": sid, "at": dt.datetime.now().isoformat(timespec="minutes"),
+                         "what": ", ".join(srch.get("queries") or []), "where": srch.get("location", ""),
+                         "results": res, "log": search["log"][-40:]}, search["jobs"])
         except Exception as e:  # noqa: BLE001
             search["log"].append(f"Error: {e}")
         finally:
@@ -819,14 +859,41 @@ def start_search():
 
 @app.get("/api/search")
 def get_search():
-    return jsonify({k: search[k] for k in ("running", "log", "results")})
+    """The running search, or a saved one (?sid=…), or the newest saved one."""
+    hist = _history()
+    sid = request.args.get("sid")
+    if search["running"] or (search["sid"] and sid in (None, search["sid"]) and search["results"]):
+        view = {"id": search["sid"], "log": search["log"], "results": search["results"]}
+    else:
+        view = next((h for h in hist if h["id"] == sid), hist[0] if hist else {"id": None, "log": [], "results": []})
+    db = load_db()
+    results = [dict(r, already=db.get(r["id"], {}).get("status")) for r in view.get("results", [])]
+    return jsonify({"running": search["running"], "sid": view.get("id"), "log": view.get("log", []), "results": results,
+                    "history": [{"id": h["id"], "at": h["at"], "what": h.get("what", ""), "where": h.get("where", ""),
+                                 "count": len(h["results"])} for h in hist]})
+
+
+@app.delete("/api/search/<sid>")
+def delete_search(sid):
+    with lock:
+        hist = [h for h in _history() if h["id"] != sid]
+        keep = {r["id"] for h in hist for r in h["results"]}
+        _save_json(SEARCHES, hist)
+        _save_json(FOUND, {k: v for k, v in _load_json(FOUND, {}).items() if k in keep})
+    if search["sid"] == sid and not search["running"]:
+        search.update(sid=None, results=[], log=[], jobs={})
+    return jsonify(ok=True)
 
 
 @app.post("/api/search/<jid>/tailor")
 def search_tailor(jid):
     j = search["jobs"].get(jid)
     if not j:
-        return err("Search again, that result expired.")
+        d = _load_json(FOUND, {}).get(jid)
+        if d:
+            j = Job(**d)
+    if not j:
+        return err("That result is no longer saved. Run the search again.")
     try:
         j = full_description(j, log=lambda *_: None)
         return jsonify(make_resume(j))

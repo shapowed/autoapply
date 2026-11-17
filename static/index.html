@@ -209,6 +209,7 @@ a.btn{color:var(--ink)}
       </div>
       <div id="searchLog" class="log hide" style="margin-top:14px"></div>
     </div>
+    <div id="searchHistory" class="row hide" style="margin:-4px 0 14px"></div>
     <div id="searchResults"></div>
   </section>
 
@@ -400,7 +401,7 @@ $("#searchBtn").onclick = async () => {
     if (q.length) c.search.queries = q;
     c.search.location = $("#fWhere").value.trim();
     await api("/api/settings", {method: "PUT", json: {config: c}});
-    await api("/api/search", {method: "POST"}); pollSearch(); initFind();
+    viewSid = null; await api("/api/search", {method: "POST"}); pollSearch(); initFind();
   } catch (e) { toast(e.message); }
 };
 async function initFind() {
@@ -433,8 +434,27 @@ async function connectSources() {
   $("#connectBox").querySelectorAll("input").forEach(i => i.value = "");
   toast("Keys saved. Search away!"); initFind();
 }
+let viewSid = null;
+function whenText(iso) {
+  const d = new Date(iso), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
+  const t = d.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+  if (d.toDateString() === now.toDateString()) return "Today " + t;
+  if (d.toDateString() === y.toDateString()) return "Yesterday " + t;
+  return d.toLocaleDateString([], {month: "short", day: "numeric"}) + " " + t;
+}
+function drawHistory(s) {
+  const el = $("#searchHistory");
+  if (!s.history.length || s.running) return el.classList.add("hide");
+  el.classList.remove("hide");
+  el.innerHTML = `<span class="small muted">Showing</span>
+    <select class="btn small" style="width:auto;max-width:100%" onchange="viewSid=this.value;pollSearch()">
+      ${s.history.map(h => `<option value="${h.id}" ${h.id === s.sid ? "selected" : ""}>${esc(whenText(h.at))} · ${esc(h.what || "search")}${h.where ? " in " + esc(h.where) : ""} (${h.count})</option>`).join("")}
+    </select>
+    ${s.sid ? `<button class="btn small ghost danger" onclick="if(confirm('Delete this saved search?'))api('/api/search/${s.sid}',{method:'DELETE'}).then(()=>{viewSid=null;pollSearch()})">Delete</button>` : ""}`;
+}
 async function pollSearch() {
-  const s = await api("/api/search");
+  const s = await api("/api/search" + (viewSid ? "?sid=" + encodeURIComponent(viewSid) : ""));
+  drawHistory(s);
   $("#searchBtn").disabled = s.running;
   $("#searchBtn").innerHTML = s.running ? `<span class="spinner"></span> Searching…` : "Search now";
   $("#searchLog").classList.toggle("hide", !s.log.length);
@@ -445,7 +465,7 @@ async function pollSearch() {
   $("#searchResults").innerHTML = s.results.length ? `<div class="card list">${s.results.map(r => `<div class="item" style="${r.score < min ? "opacity:.55" : ""}">
       ${scoreRing(r.score, true)}
       <div class="grow"><div class="t">${esc(r.title)}</div><div class="small muted">${esc(r.company)} · ${esc(r.location)}${r.posted ? " · " + esc(r.posted) : ""}</div>
-        <div class="chips" style="margin-top:4px"><span class="chip">via ${esc(r.via)}</span>${r.can_apply ? '<span class="chip good">AutoApply can fill this out</span>' : ""}${r.snippet ? '<span class="chip" title="Adzuna only shares a preview. The real score is calculated when you click Make resume.">rough score</span>' : ""}</div></div>
+        <div class="chips" style="margin-top:4px">${r.new ? '<span class="chip good">New</span>' : ""}<span class="chip">via ${esc(r.via)}</span>${r.can_apply ? '<span class="chip good">AutoApply can fill this out</span>' : ""}${r.snippet ? '<span class="chip" title="Adzuna only shares a preview. The real score is calculated when you click Make resume.">rough score</span>' : ""}</div></div>
       ${r.already ? pill(r.already) : `<button class="btn small primary" onclick="tailorFound('${r.id}',this)">Make resume</button>`}
       <a class="btn small ghost" href="${esc(r.url)}" target="_blank">View</a></div>`).join("")}</div>` : "";
   clearTimeout(searchTimer);

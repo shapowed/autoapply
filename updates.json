@@ -1,4 +1,4 @@
 {
-  "version": "1.4.1",
-  "notes": "Closing AutoApply's window now fully quits it (after about 20 seconds), so it always starts fresh and up to date. You can turn this off in Settings → Closing AutoApply."
+  "version": "1.5.0",
+  "notes": "Search results are now saved: they're still there after you close AutoApply, you can switch between your last 10 searches, and jobs you haven't seen before are marked New."
 }
