@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AutoApply">
+<meta name="theme-color" content="#121311">
+<script>(function(){var t="dark";try{t=localStorage.getItem("aa_theme")||"dark"}catch(e){}
+document.documentElement.dataset.theme=t;})()</script>
+<title>AutoApply</title>
+<style>
+:root{ --bg:#121311; --panel:#1b1c1a; --ink:#ecebe6; --muted:#9c9b95; --line:#2c2d29;
+  --accent:#7fb8a4; --accent-ink:#0f1f19; --accent-soft:#1f302a;
+  --good:#7cc79a; --good-soft:#1c3024; --warn:#e2b45a; --warn-soft:#352b16;
+  --bad:#e88b7b; --bad-soft:#38201c; --chip:#262724; --shadow:none; --radius:12px; }
+:root[data-theme=light]{ --bg:#f6f5f2; --panel:#fff; --ink:#1d1d1b; --muted:#6b6a66; --line:#e6e3dc;
+  --accent:#2f5d50; --accent-ink:#fff; --accent-soft:#e6efe9;
+  --good:#2f7a4f; --good-soft:#e3f2e8; --warn:#9a6a12; --warn-soft:#fbf1dc;
+  --bad:#a33b2b; --bad-soft:#f8e4e0; --chip:#f0eee9; --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04); }
+@media (prefers-color-scheme:light){ :root[data-theme=system]{ --bg:#f6f5f2; --panel:#fff; --ink:#1d1d1b; --muted:#6b6a66; --line:#e6e3dc;
+  --accent:#2f5d50; --accent-ink:#fff; --accent-soft:#e6efe9;
+  --good:#2f7a4f; --good-soft:#e3f2e8; --warn:#9a6a12; --warn-soft:#fbf1dc;
+  --bad:#a33b2b; --bad-soft:#f8e4e0; --chip:#f0eee9; --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04); } }
+:root{color-scheme:dark} :root[data-theme=light]{color-scheme:light}
+@media (prefers-color-scheme:light){ :root[data-theme=system]{color-scheme:light} }
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+button,input,textarea,select{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+nav{border-right:1px solid var(--line);padding:22px 14px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px}
+.brand{font-weight:700;font-size:18px;padding:0 10px 18px;letter-spacing:-.01em}
+.brand span{color:var(--accent)}
+nav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;color:var(--muted);text-decoration:none;cursor:pointer;font-weight:500}
+nav a:hover{background:var(--chip);color:var(--ink)}
+nav a.on{background:var(--accent-soft);color:var(--accent)}
+nav a i{font-style:normal;width:18px;text-align:center}
+nav a .short{display:none}
+nav a .long{white-space:nowrap}
+nav a .n{margin-left:auto;font-size:12px;background:var(--chip);padding:0 7px;border-radius:9px;color:var(--muted)}
+nav .foot{margin-top:auto;font-size:12px;color:var(--muted);padding:10px}
+main{padding:34px 44px 80px;max-width:980px;width:100%}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:17px;margin:0 0 12px}
+.sub{color:var(--muted);margin:0 0 26px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow);margin-bottom:18px}
+textarea,input[type=text],input[type=password],input[type=number],select{width:100%;border:1px solid var(--line);background:var(--panel);border-radius:9px;padding:10px 12px;outline:none}
+textarea:focus,input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+textarea{resize:vertical}
+.big{min-height:130px;font-size:15px}
+label.f{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
+label.f small{font-weight:400;color:var(--muted)}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+.btn{border:1px solid var(--line);background:var(--panel);padding:9px 16px;border-radius:9px;cursor:pointer;font-weight:600;display:inline-flex;align-items:center;gap:8px;text-decoration:none;white-space:nowrap}
+a.btn{color:var(--ink)}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.ghost:hover{color:var(--ink);background:var(--chip)}
+.btn.small{padding:5px 11px;font-size:13px}
+.btn.danger{color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.lg{padding:12px 22px;font-size:16px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:var(--chip);border-radius:20px;padding:3px 11px;font-size:13px}
+.chip.good{background:var(--good-soft);color:var(--good)}
+.chip.low{opacity:.55;text-decoration:line-through dotted}
+.chip.edit{cursor:pointer;user-select:none}
+.chip.edit:hover{outline:1px solid var(--line)}
+.chip .x{margin-left:6px;opacity:.5;cursor:pointer}
+.pill{font-size:12px;font-weight:600;padding:2px 10px;border-radius:20px;white-space:nowrap}
+.pill.ready{background:var(--chip);color:var(--muted)}
+.pill.applying{background:var(--warn-soft);color:var(--warn)}
+.pill.check{background:var(--warn-soft);color:var(--warn)}
+.pill.submitted{background:var(--good-soft);color:var(--good)}
+.pill.skipped{background:var(--chip);color:var(--muted);text-decoration:line-through}
+.pill.interview{background:var(--accent-soft);color:var(--accent)}
+.pill.rejected{background:var(--bad-soft);color:var(--bad)}
+.score{--v:0;width:74px;height:74px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:conic-gradient(var(--c) calc(var(--v)*1%),var(--chip) 0)}
+.score b{width:58px;height:58px;border-radius:50%;background:var(--panel);display:grid;place-items:center;font-size:20px}
+.score.sm{width:42px;height:42px}.score.sm b{width:32px;height:32px;font-size:13px}
+.result-head{display:flex;gap:18px;align-items:center;margin-bottom:16px}
+.result-head h2{margin:0;font-size:20px}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.notice{padding:12px 14px;border-radius:9px;background:var(--warn-soft);color:var(--warn);margin:12px 0;font-size:14px}
+.notice.ok{background:var(--good-soft);color:var(--good)}
+.notice.err{background:var(--bad-soft);color:var(--bad)}
+.notice.info{background:var(--accent-soft);color:var(--accent)}
+.list .item{display:flex;gap:14px;align-items:center;padding:14px 4px;border-bottom:1px solid var(--line)}
+.list .item:last-child{border-bottom:0}
+.list .grow{flex:1;min-width:0}
+.list .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:var(--panel);border-radius:20px;padding:4px 13px;font-size:13px;cursor:pointer}
+.tabs button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.empty{text-align:center;padding:40px 10px;color:var(--muted)}
+.job-exp{border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+.bullet{display:flex;gap:6px;align-items:flex-start;margin-top:6px}
+.bullet textarea{min-height:44px;font-size:14px}
+.spinner{width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:s .7s linear infinite;display:inline-block}
+@keyframes s{to{transform:rotate(360deg)}}
+.hide{display:none!important}
+.log{font:12px/1.5 ui-monospace,Menlo,monospace;background:var(--chip);border-radius:9px;padding:10px;max-height:150px;overflow:auto;white-space:pre-wrap}
+.toggle{display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin:12px 0}
+.toggle input{margin-top:4px;accent-color:var(--accent);width:16px;height:16px}
+/* onboarding */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:50;padding:20px}
+.wizard{background:var(--panel);border-radius:16px;max-width:560px;width:100%;padding:34px;box-shadow:0 20px 60px rgba(0,0,0,.25);max-height:92vh;overflow:auto}
+.steps{display:flex;gap:6px;margin-bottom:22px}
+.steps i{height:4px;flex:1;border-radius:4px;background:var(--line)}
+.steps i.on{background:var(--accent)}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:28px;text-align:center;cursor:pointer;color:var(--muted)}
+.drop:hover,.drop.over{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:14px;z-index:60;opacity:0;transition:.2s;pointer-events:none}
+.toast.on{opacity:1}
+@media (max-width:760px){
+ .app{grid-template-columns:1fr}
+ nav{position:fixed;top:auto;bottom:0;left:0;right:0;height:auto;z-index:40;flex-direction:row;gap:0;padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+     border-right:0;border-top:1px solid var(--line);background:var(--panel)}
+ nav a{flex:1;flex-direction:column;gap:0;padding:6px 2px;font-size:11px;position:relative;border-radius:10px}
+ nav a i{font-size:19px;width:auto}
+ nav a .long{display:none} nav a .short{display:inline}
+ nav a .n{position:absolute;top:2px;right:18%;font-size:10px;padding:0 5px;background:var(--accent);color:var(--accent-ink)}
+ .brand,nav .foot{display:none}
+ main{padding:calc(18px + env(safe-area-inset-top)) 16px 110px}
+ h1{font-size:23px} .card{padding:16px} .grid2{grid-template-columns:1fr!important}
+ .list .item{flex-wrap:wrap} .list .item .grow{flex-basis:60%}
+ .result-head{flex-wrap:wrap} .row .btn{flex:1 1 auto;justify-content:center}
+ .wizard{padding:24px 20px}
+ textarea,input,select{font-size:16px} /* stops iPhone zooming in on tap */
+}
+.remote .local-only{display:none!important}
+.qr svg{width:180px;height:180px;background:#fff;border-radius:10px;padding:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav>
+    <div class="brand">Auto<span>Apply</span></div>
+    <a data-v="apply" class="on"><i>＋</i><span class="long">New application</span><span class="short">New</span></a>
+    <a data-v="find"><i>⌕</i><span class="long">Find jobs</span><span class="short">Find</span></a>
+    <a data-v="apps"><i>☰</i><span class="long">My applications</span><span class="short">Applied</span><span class="n" id="nApps">0</span></a>
+    <a data-v="resume"><i>◧</i><span class="long">My resume</span><span class="short">Resume</span></a>
+    <a data-v="settings"><i>⚙</i><span class="long">Settings</span><span class="short">Settings</span></a>
+    <div class="foot"><div id="footName"></div>
+      <div class="local-only" style="margin-top:8px;display:flex;flex-direction:column;align-items:flex-start;gap:2px">
+        <button class="btn ghost small" onclick="api('/api/open-folder',{method:'POST'})">Open resumes folder</button>
+        <button class="btn ghost small" onclick="quitApp()">Quit AutoApply</button></div>
+      <button class="btn ghost small" style="margin-top:2px" onclick="cycleTheme()" id="themeBtn"></button></div>
+  </nav>
+  <main>
+  <div id="updateBanner" class="hide"></div>
+
+  <!-- NEW APPLICATION -->
+  <section id="v-apply">
+    <h1>New application</h1>
+    <p class="sub">Paste a job link or the job description. You'll get a resume tailored to it in a few seconds.</p>
+    <div class="card">
+      <textarea id="jobInput" class="big" placeholder="https://job-boards.greenhouse.io/company/jobs/123…&#10;&#10;…or paste the full job description here"></textarea>
+      <div id="manualFields" class="grid2 hide">
+        <div><label class="f">Company</label><input type="text" id="mCompany" placeholder="e.g. Acme Corp"></div>
+        <div><label class="f">Job title</label><input type="text" id="mTitle" placeholder="e.g. IT Support Analyst"></div>
+      </div>
+      <div id="slugField" class="hide"><label class="f">Company's Greenhouse name <small>(the word after greenhouse.io/ on their job board, usually the company name in lowercase)</small></label><input type="text" id="mSlug"></div>
+      <div id="applyMsg"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary lg" id="goBtn">Tailor my resume</button>
+        <span class="muted small" id="inputHint">Links from Greenhouse, Lever and Ashby can be filled out for you too.</span>
+      </div>
+    </div>
+    <div id="result"></div>
+    <div class="card" id="howCard">
+      <h2>Finding links that work</h2>
+      <p class="small muted" style="margin:0">On LinkedIn or Indeed, click <b>Apply</b> (not Easy Apply). If it opens a page on <b>greenhouse.io</b>, <b>lever.co</b> or <b>ashbyhq.com</b>, paste that link here and AutoApply will fill in the application. For any other site, paste the job description instead. You'll still get a tailored resume and can apply yourself.</p>
+    </div>
+  </section>
+
+  <!-- FIND JOBS -->
+  <section id="v-find" class="hide">
+    <h1>Find jobs</h1>
+    <p class="sub">Searches LinkedIn, Indeed, Glassdoor, ZipRecruiter and company career sites at once, then ranks every job by how well your resume fits it.</p>
+    <div class="card">
+      <div class="grid2" style="grid-template-columns:2fr 1fr">
+        <div><label class="f" style="margin-top:0">What <small>(comma separated: each is one search)</small></label><input type="text" id="fWhat" placeholder="IT Support, Help Desk"></div>
+        <div><label class="f" style="margin-top:0">Where</label><input type="text" id="fWhere" placeholder="New York, NY or Remote"></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="searchBtn">Search now</button>
+        <span class="muted small" id="searchSummary"></span>
+        <a class="btn ghost small" style="margin-left:auto" data-go="settings">Job sites &amp; filters</a>
+      </div>
+      <div id="srcNote" class="small muted" style="margin-top:10px"></div>
+      <div id="connectBox" class="hide local-only" style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+        <b>Connect LinkedIn, Indeed, Glassdoor &amp; more</b>
+        <p class="small muted" style="margin:4px 0 0">Paste your free keys once. Without them, only the company career pages in Settings get searched.</p>
+        <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
+          <div><label class="f">SerpApi key</label><input type="password" data-src="serpapi_key" id="cSerp"></div>
+          <div><label class="f">Adzuna App ID</label><input type="text" data-src="adzuna_app_id" id="cAzId"></div>
+          <div><label class="f">Adzuna App Key</label><input type="password" data-src="adzuna_app_key" id="cAzKey"></div>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" onclick="connectSources()">Save keys</button><span id="connectMsg" class="small"></span></div>
+      </div>
+      <div id="searchLog" class="log hide" style="margin-top:14px"></div>
+    </div>
+    <div id="searchResults"></div>
+  </section>
+
+  <!-- APPLICATIONS -->
+  <section id="v-apps" class="hide">
+    <h1>My applications</h1>
+    <p class="sub">Every resume you've made, and where each application stands.</p>
+    <div class="tabs" id="appTabs"></div>
+    <div class="card list" id="appList"></div>
+  </section>
+
+  <!-- RESUME -->
+  <section id="v-resume" class="hide">
+    <h1>My resume</h1>
+    <p class="sub">This is the master copy. Every tailored resume is built only from what's here: it gets reordered and reworded, but nothing is ever made up.</p>
+    <div class="card">
+      <div class="row">
+        <button class="btn primary" id="saveResume">Save</button>
+        <a class="btn" href="/api/profile/preview" target="_blank" id="previewBtn">Preview PDF</a>
+        <label class="btn" style="margin-left:auto">Import from file…<input type="file" id="importFile" accept=".pdf,.docx,.txt" hidden></label>
+      </div>
+      <div id="resumeMsg"></div>
+    </div>
+    <div id="resumeForm"></div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="v-settings" class="hide">
+    <h1>Settings</h1>
+    <p class="sub">Saved on this computer only.</p>
+    <div id="settingsForm"></div>
+  </section>
+
+  </main>
+</div>
+
+<div class="overlay hide" id="wizard"><div class="wizard" id="wizBody"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const api = async (url, opts = {}) => {
+  if (opts.json !== undefined) { opts.body = JSON.stringify(opts.json); opts.headers = {"Content-Type": "application/json"}; delete opts.json; }
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = "/login"; throw new Error("Please enter your PIN."); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || "Something went wrong.");
+  return d;
+};
+const toast = m => { const t = $("#toast"); t.textContent = m; t.classList.add("on"); setTimeout(() => t.classList.remove("on"), 2200); };
+const notice = (el, msg, kind = "") => { el.innerHTML = msg ? `<div class="notice ${kind}">${msg}</div>` : ""; };
+const scoreColor = s => s >= 70 ? "var(--good)" : s >= 50 ? "var(--warn)" : "var(--bad)";
+const scoreRing = (s, sm) => `<div class="score ${sm ? "sm" : ""}" style="--v:${s};--c:${scoreColor(s)}"><b>${s}</b></div>`;
+const STATUS = {ready: "Resume ready", applying: "Application open", check: "Did you submit?", submitted: "Submitted", interview: "Interview", rejected: "Rejected", skipped: "Skipped"};
+const pill = s => `<span class="pill ${s}">${STATUS[s] || s}</span>`;
+let state = {}, profile = null, settings = null;
+
+/* ---------- navigation ---------- */
+function show(v) {
+  document.querySelectorAll("main > section").forEach(s => s.classList.toggle("hide", s.id !== "v-" + v));
+  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", a.dataset.v === v));
+  ({apps: loadApps, resume: loadResume, settings: loadSettings, find: () => { initFind(); pollSearch(); }})[v]?.();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll("nav a").forEach(a => a.onclick = () => show(a.dataset.v));
+document.addEventListener("click", e => { const g = e.target.closest("[data-go]"); if (g) { e.preventDefault(); show(g.dataset.go); } });
+
+async function refreshState() {
+  state = await api("/api/state");
+  $("#nApps").textContent = state.total;
+  $("#footName").textContent = state.profile_name ? "Signed in as " + state.profile_name : "";
+  document.body.classList.toggle("remote", !!state.is_remote);
+}
+
+/* ---------- new application ---------- */
+const isUrl = s => /^https?:\/\/\S+$/.test(s.trim());
+$("#jobInput").addEventListener("input", () => {
+  const v = $("#jobInput").value.trim();
+  $("#manualFields").classList.toggle("hide", !v || isUrl(v));
+  $("#slugField").classList.toggle("hide", !/gh_jid=/.test(v));
+});
+$("#goBtn").onclick = async () => {
+  const btn = $("#goBtn"), input = $("#jobInput").value.trim();
+  notice($("#applyMsg"), "");
+  if (!input) return notice($("#applyMsg"), "Paste a job link or description first.", "err");
+  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Tailoring…`;
+  try {
+    const r = await api("/api/tailor", {method: "POST", json: {input, company: $("#mCompany").value, title: $("#mTitle").value, slug: $("#mSlug").value}});
+    if (r.need_description) {
+      notice($("#applyMsg"), r.message, "info");
+      $("#jobInput").value = ""; $("#jobInput").placeholder = "Paste the full job description here";
+      $("#manualFields").classList.remove("hide"); $("#jobInput").focus();
+    } else {
+      renderResult(r); $("#jobInput").value = ""; $("#manualFields").classList.add("hide");
+      $("#mCompany").value = $("#mTitle").value = $("#mSlug").value = ""; refreshState();
+    }
+  } catch (e) { notice($("#applyMsg"), esc(e.message), "err"); }
+  btn.disabled = false; btn.textContent = "Tailor my resume";
+};
+
+function resultHTML(r) {
+  const low = r.score < 50;
+  return `<div class="card" id="res-${r.id}">
+    <div class="result-head">${scoreRing(r.score)}
+      <div style="flex:1"><h2>${esc(r.title)}</h2><div class="muted">${esc(r.extra?.company_name || r.company)}${r.location ? " · " + esc(r.location) : ""}${r.extra?.via ? " · via " + esc(r.extra.via) : ""}</div></div>
+      ${pill(r.status)}</div>
+    ${low ? `<div class="notice">Your resume only covers part of what this job asks for. You can still apply, but expect better odds with closer matches.</div>` : ""}
+    <label class="f">You match</label><div class="chips">${r.matched.map(m => `<span class="chip good">${esc(m)}</span>`).join("") || '<span class="muted small">—</span>'}</div>
+    <label class="f">The job mentions, not on your resume <small>· if you really have one of these, add it in My resume and re-tailor</small></label>
+    <div class="chips">${r.missing.map(m => `<span class="chip">${esc(m)}</span>`).join("") || '<span class="muted small">Nothing, you cover it all.</span>'}</div>
+    <div class="row" style="margin-top:20px">
+      <a class="btn" href="/files/${encodeURIComponent(r.pdf)}" target="_blank">View resume</a>
+      <a class="btn" href="/files/${encodeURIComponent(r.pdf)}?dl=1">Download PDF</a>
+      <a class="btn" href="/files/${encodeURIComponent(r.docx)}?dl=1">Download Word</a>
+      <span style="flex:1"></span>
+      ${r.can_apply ? `<button class="btn primary" onclick="applyJob('${r.id}')">${state.is_remote ? "Fill out on my computer →" : "Fill out application →"}</button>`
+                    : (r.extra?.apply_options?.length
+                        ? r.extra.apply_options.slice(0, 3).map((o, i) => `<a class="btn ${i ? "" : "primary"}" href="${esc(o.link)}" target="_blank">${esc(o.title || "Apply")} →</a>`).join("")
+                        : (r.url ? `<a class="btn primary" href="${esc(r.url)}" target="_blank">Open job posting →</a>` : ""))}
+    </div>
+    <div class="small muted" style="margin-top:10px">${r.method === "claude" ? "Reworded with AI and checked against your master resume." : "Reordered for this job. Add an API key in Settings for AI rewording."}</div>
+    <div class="apply-status">${statusBox(r)}</div>
+  </div>`;
+}
+function statusBox(r) {
+  if (r.status === "applying") return `<div class="notice info"><span class="spinner"></span> ${esc(r.apply_msg)}</div>`;
+  if (r.status === "check") return `<div class="notice">${esc(r.apply_msg)}<div class="row" style="margin-top:8px">
+     <button class="btn small primary" onclick="setStatus('${r.id}','submitted')">Yes, submitted</button>
+     <button class="btn small" onclick="setStatus('${r.id}','ready')">No, not yet</button></div></div>`;
+  if (r.status === "submitted") return `<div class="notice ok">Submitted. Good luck!</div>`;
+  if (r.apply_msg && r.status === "ready") return `<div class="notice err">${esc(r.apply_msg)}</div>`;
+  return "";
+}
+function renderResult(r) { $("#result").innerHTML = resultHTML(r); $("#howCard").classList.add("hide"); }
+
+async function applyJob(id) {
+  try { const r = await api(`/api/jobs/${id}/apply`, {method: "POST"}); updateJobViews(r); toast(state.is_remote ? "Opening on your computer's screen…" : "A browser window is opening…"); watch(id); }
+  catch (e) { toast(e.message); }
+}
+async function setStatus(id, status) {
+  const r = await api(`/api/jobs/${id}/status`, {method: "POST", json: {status}});
+  updateJobViews(r); if (!$("#v-apps").classList.contains("hide")) loadApps(); refreshState();
+}
+function updateJobViews(r) {
+  const card = $("#res-" + r.id); if (card) card.outerHTML = resultHTML(r);
+  if (!$("#v-apps").classList.contains("hide")) loadApps();
+}
+function watch(id) {
+  const t = setInterval(async () => {
+    const all = await api("/api/jobs"); const r = all.find(x => x.id === id);
+    if (!r) return clearInterval(t);
+    updateJobViews(r);
+    if (r.status !== "applying") clearInterval(t);
+  }, 2000);
+}
+
+/* ---------- applications ---------- */
+let appFilter = "all";
+async function loadApps() {
+  const jobs = await api("/api/jobs");
+  const counts = {all: jobs.length}; jobs.forEach(j => counts[j.status] = (counts[j.status] || 0) + 1);
+  const tabs = ["all", "ready", "submitted", "interview", "rejected", "skipped"].filter(t => t === "all" || counts[t]);
+  $("#appTabs").innerHTML = tabs.map(t => `<button class="${t === appFilter ? "on" : ""}" onclick="appFilter='${t}';loadApps()">${t === "all" ? "All" : STATUS[t]} · ${counts[t] || 0}</button>`).join("");
+  const list = jobs.filter(j => appFilter === "all" || j.status === appFilter);
+  $("#appList").innerHTML = list.length ? list.map(j => `<div class="item">
+      ${scoreRing(j.score, true)}
+      <div class="grow"><div class="t">${esc(j.title)}</div><div class="small muted">${esc(j.extra?.company_name || j.company)} · ${esc(j.date)}</div></div>
+      ${pill(j.status)}
+      <a class="btn small" href="/files/${encodeURIComponent(j.pdf)}" target="_blank">Resume</a>
+      ${j.can_apply && !["submitted","interview","rejected"].includes(j.status) ? `<button class="btn small primary" onclick="applyJob('${j.id}');show('apply');renderResultById('${j.id}')">Apply</button>` : ""}
+      <select class="btn small" style="width:auto" onchange="setStatus('${j.id}',this.value)">
+        ${Object.keys(STATUS).filter(s => s !== "applying").map(s => `<option value="${s}" ${s === j.status ? "selected" : ""}>${STATUS[s]}</option>`).join("")}
+      </select>
+      <button class="btn small ghost danger" title="Remove" onclick="delJob('${j.id}')">✕</button>
+    </div>`).join("")
+    : `<div class="empty">Nothing here yet. <a href="#" data-go="apply">Tailor your first resume</a>.</div>`;
+}
+async function renderResultById(id) { const r = (await api("/api/jobs")).find(x => x.id === id); if (r) renderResult(r); }
+async function delJob(id) { if (!confirm("Remove this from your list?")) return; await api(`/api/jobs/${id}`, {method: "DELETE"}); loadApps(); refreshState(); }
+
+/* ---------- find jobs ---------- */
+let searchTimer = null;
+$("#searchBtn").onclick = async () => {
+  try {
+    const s = await api("/api/settings"); const c = s.config;
+    const q = $("#fWhat").value.split(",").map(x => x.trim()).filter(Boolean);
+    if (q.length) c.search.queries = q;
+    c.search.location = $("#fWhere").value.trim();
+    await api("/api/settings", {method: "PUT", json: {config: c}});
+    await api("/api/search", {method: "POST"}); pollSearch();
+  } catch (e) { toast(e.message); }
+};
+async function initFind() {
+  const s = await api("/api/settings"); settings = s; const c = s.config.search, k = s.sources || {};
+  if (!$("#fWhat").value) $("#fWhat").value = (c.queries || []).join(", ");
+  if (!$("#fWhere").value) $("#fWhere").value = c.location || "";
+  const on = [], off = [];
+  (k.serpapi_key ? on : off).push("Google Jobs (LinkedIn, Indeed, Glassdoor…)");
+  (k.adzuna_app_id && k.adzuna_app_key ? on : off).push("Adzuna");
+  if (c.sources?.company_boards !== false) on.push("your saved company career pages");
+  let note = "Searching: " + on.join(" · ");
+  if (off.length && !state.is_remote) note += ` &nbsp;·&nbsp; <a href="#" data-go="settings">Add keys</a> to also search ${off.join(" and ")}.`;
+  if (k.serpapi_key) {
+    const q = (c.queries || []).length * (c.google_pages || 1);
+    note += `<br>Each search uses ${q} of your Google Jobs searches.`;
+    api("/api/sources/usage").then(u => { if (u.google_left != null) $("#srcNote").innerHTML += ` <b>${u.google_left}</b> left this month.`; }).catch(() => {});
+  }
+  $("#srcNote").innerHTML = note;
+  const missing = !k.serpapi_key || !(k.adzuna_app_id && k.adzuna_app_key);
+  $("#connectBox").classList.toggle("hide", !missing || !!state.is_remote);
+  $("#cSerp").closest("div").classList.toggle("hide", !!k.serpapi_key);
+  $("#cAzId").closest("div").classList.toggle("hide", !!k.adzuna_app_id);
+  $("#cAzKey").closest("div").classList.toggle("hide", !!k.adzuna_app_key);
+}
+async function connectSources() {
+  const src = typedSources($("#connectBox"));
+  if (!Object.keys(src).length) return $("#connectMsg").textContent = "Paste at least one key first.";
+  await api("/api/settings", {method: "PUT", json: {sources: src}});
+  $("#connectBox").querySelectorAll("input").forEach(i => i.value = "");
+  toast("Keys saved. Search away!"); initFind();
+}
+async function pollSearch() {
+  const s = await api("/api/search");
+  $("#searchBtn").disabled = s.running;
+  $("#searchBtn").innerHTML = s.running ? `<span class="spinner"></span> Searching…` : "Search now";
+  $("#searchLog").classList.toggle("hide", !s.log.length);
+  $("#searchLog").textContent = s.log.join("\n"); $("#searchLog").scrollTop = 1e9;
+  const min = settings?.config?.search?.min_score ?? 55;
+  const good = s.results.filter(r => r.score >= min);
+  $("#searchSummary").textContent = s.results.length ? `${good.length} strong matches out of ${s.results.length}` : "";
+  $("#searchResults").innerHTML = s.results.length ? `<div class="card list">${s.results.map(r => `<div class="item" style="${r.score < min ? "opacity:.55" : ""}">
+      ${scoreRing(r.score, true)}
+      <div class="grow"><div class="t">${esc(r.title)}</div><div class="small muted">${esc(r.company)} · ${esc(r.location)}${r.posted ? " · " + esc(r.posted) : ""}</div>
+        <div class="chips" style="margin-top:4px"><span class="chip">via ${esc(r.via)}</span>${r.can_apply ? '<span class="chip good">AutoApply can fill this out</span>' : ""}${r.snippet ? '<span class="chip" title="Adzuna only shares a preview. The real score is calculated when you click Make resume.">rough score</span>' : ""}</div></div>
+      ${r.already ? pill(r.already) : `<button class="btn small primary" onclick="tailorFound('${r.id}',this)">Make resume</button>`}
+      <a class="btn small ghost" href="${esc(r.url)}" target="_blank">View</a></div>`).join("")}</div>` : "";
+  clearTimeout(searchTimer);
+  if (s.running) searchTimer = setTimeout(pollSearch, 1200);
+}
+async function tailorFound(id, btn) {
+  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span>`;
+  try { const r = await api(`/api/search/${id}/tailor`, {method: "POST"}); show("apply"); renderResult(r); refreshState(); }
+  catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Make resume"; }
+}
+
+/* ---------- resume editor ---------- */
+async function loadResume() { profile = await api("/api/profile"); drawResume(); }
+function drawResume() {
+  const p = profile; if (!p.name) { p.name = ""; p.contact = {}; p.experience = []; p.education = []; p.certifications = []; p.skills = {}; p.summary = ""; }
+  const c = p.contact || (p.contact = {});
+  $("#resumeForm").innerHTML = `
+  <div class="card"><h2>Contact</h2><div class="grid2">
+    <div><label class="f">Full name</label><input type="text" data-k="name" value="${esc(p.name)}"></div>
+    <div><label class="f">Email</label><input type="text" data-c="email" value="${esc(c.email)}"></div>
+    <div><label class="f">Phone</label><input type="text" data-c="phone" value="${esc(c.phone)}"></div>
+    <div><label class="f">City, State</label><input type="text" data-c="location" value="${esc(c.location)}"></div>
+    <div style="grid-column:1/-1"><label class="f">LinkedIn URL</label><input type="text" data-c="linkedin_url" value="${esc(c.linkedin_url)}" placeholder="https://www.linkedin.com/in/…"></div>
+  </div></div>
+  <div class="card"><h2>Summary</h2><textarea data-k="summary" rows="4">${esc(p.summary)}</textarea></div>
+  <div class="card"><h2>Experience</h2>
+    ${p.experience.map((e, i) => `<div class="job-exp">
+      <div class="grid2">
+        <div><label class="f">Job title</label><input type="text" data-e="${i}" data-f="title" value="${esc(e.title)}"></div>
+        <div><label class="f">Company</label><input type="text" data-e="${i}" data-f="company" value="${esc(e.company)}"></div>
+        <div><label class="f">Location</label><input type="text" data-e="${i}" data-f="location" value="${esc(e.location)}"></div>
+        <div><label class="f">Dates</label><input type="text" data-e="${i}" data-f="dates" value="${esc(e.dates)}"></div>
+      </div>
+      <label class="f">Bullet points</label>
+      ${e.bullets.map((b, k) => `<div class="bullet"><textarea data-e="${i}" data-b="${k}" rows="2">${esc(b.text)}</textarea>
+        <button class="btn small ghost danger" onclick="profile.experience[${i}].bullets.splice(${k},1);drawResume()">✕</button></div>`).join("")}
+      <div class="row" style="margin-top:10px">
+        <button class="btn small" onclick="profile.experience[${i}].bullets.push({text:''});drawResume()">+ Bullet</button>
+        <button class="btn small ghost danger" style="margin-left:auto" onclick="if(confirm('Remove this job?')){profile.experience.splice(${i},1);drawResume()}">Remove job</button>
+      </div></div>`).join("")}
+    <button class="btn small" onclick="profile.experience.push({title:'',company:'',location:'',dates:'',bullets:[{text:''}]});drawResume()">+ Add job</button>
+  </div>
+  <div class="card"><h2>Skills</h2>
+    <p class="small muted" style="margin-top:-6px">Click a skill to mark it <b>"listed only"</b> (shown faded): it stays in your skills list but is never featured in your summary or bullets. Use this for anything you couldn't talk through in an interview.</p>
+    ${Object.entries(p.skills).map(([cat, items]) => `<label class="f">${esc(cat)} <button class="btn small ghost danger" onclick="if(confirm('Remove the whole ${esc(cat)} category?')){delete profile.skills['${esc(cat)}'];drawResume()}">remove category</button></label>
+      <div class="chips">${items.map((s, k) => `<span class="chip edit ${s.confidence === "low" ? "low" : ""}" onclick="toggleLow('${esc(cat)}',${k})">${esc(s.name)}<span class="x" onclick="event.stopPropagation();profile.skills['${esc(cat)}'].splice(${k},1);drawResume()">✕</span></span>`).join("")}</div>
+      <div class="row" style="margin-top:8px"><input type="text" placeholder="Add a skill to ${esc(cat)}, then press Enter" style="max-width:360px" onkeydown="if(event.key==='Enter'&&this.value.trim()){profile.skills['${esc(cat)}'].push({name:this.value.trim(),aliases:[]});drawResume()}"></div>`).join("")}
+    <div class="row" style="margin-top:14px"><input type="text" id="newCat" placeholder="New category name" style="max-width:260px">
+      <button class="btn small" onclick="const v=$('#newCat').value.trim();if(v){profile.skills[v]=[];drawResume()}">+ Category</button></div>
+  </div>
+  <div class="card"><h2>Certifications</h2>
+    ${p.certifications.map((c, i) => `<div class="row" style="margin-bottom:8px"><input type="text" style="flex:2" data-cert="${i}" data-ci="0" value="${esc(c[0])}" placeholder="Certification">
+      <input type="text" style="flex:1" data-cert="${i}" data-ci="1" value="${esc(c[1])}" placeholder="Date / In progress">
+      <button class="btn small ghost danger" onclick="profile.certifications.splice(${i},1);drawResume()">✕</button></div>`).join("")}
+    <button class="btn small" onclick="profile.certifications.push(['','']);drawResume()">+ Certification</button>
+  </div>
+  <div class="card"><h2>Education</h2>
+    ${p.education.map((e, i) => `<div class="job-exp">
+      <label class="f">School — City, State</label><input type="text" data-ed="${i}" data-f="school" value="${esc(e.school)}">
+      <label class="f">Degree — Date</label><input type="text" data-ed="${i}" data-f="detail" value="${esc(e.detail)}">
+      <label class="f">Extra line <small>(coursework, honors; optional)</small></label><input type="text" data-ed="${i}" data-f="extra" value="${esc(e.extra)}">
+      <div class="row" style="margin-top:8px"><button class="btn small ghost danger" onclick="profile.education.splice(${i},1);drawResume()">Remove</button></div></div>`).join("")}
+    <button class="btn small" onclick="profile.education.push({school:'',detail:'',extra:''});drawResume()">+ Education</button>
+  </div>`;
+  $("#resumeForm").oninput = e => {
+    const t = e.target, d = t.dataset;
+    if (d.k) profile[d.k] = t.value;
+    else if (d.c) profile.contact[d.c] = t.value;
+    else if (d.b !== undefined) profile.experience[d.e].bullets[d.b].text = t.value;
+    else if (d.e !== undefined) profile.experience[d.e][d.f] = t.value;
+    else if (d.ed !== undefined) profile.education[d.ed][d.f] = t.value;
+    else if (d.cert !== undefined) profile.certifications[d.cert][d.ci] = t.value;
+  };
+}
+function toggleLow(cat, k) { const s = profile.skills[cat][k]; s.confidence = s.confidence === "low" ? undefined : "low"; if (!s.confidence) delete s.confidence; drawResume(); }
+$("#saveResume").onclick = async () => {
+  profile.experience.forEach(e => e.bullets = e.bullets.filter(b => b.text.trim()));
+  try { profile = await api("/api/profile", {method: "PUT", json: profile}); drawResume(); toast("Saved"); notice($("#resumeMsg"), ""); refreshState(); }
+  catch (e) { notice($("#resumeMsg"), esc(e.message), "err"); }
+};
+$("#importFile").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  notice($("#resumeMsg"), `<span class="spinner"></span> Reading ${esc(f.name)}… (about 20 seconds)`, "info");
+  try { profile = await importFile(f); drawResume(); notice($("#resumeMsg"), "Imported. Check everything below, then click Save.", "ok"); refreshState(); }
+  catch (err) { notice($("#resumeMsg"), esc(err.message), "err"); }
+  e.target.value = "";
+};
+async function importFile(f) { const fd = new FormData(); fd.append("file", f); return api("/api/profile/import", {method: "POST", body: fd}); }
+
+/* ---------- settings ---------- */
+async function loadSettings() {
+  settings = await api("/api/settings"); const c = settings.config, a = c.applicant, s = c.search, b = c.boards;
+  const yn = (k, v) => `<select data-a="${k}"><option value="">Ask me each time</option>${["Yes", "No"].map(o => `<option ${v === o ? "selected" : ""}>${o}</option>`).join("")}</select>`;
+  const sel = (k, label, opts) => `<div><label class="f">${label}</label><select data-a="${k}"><option value="">Ask me each time</option>${opts.map(([v, t]) => `<option value="${v}" ${a[k] === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>`;
+  const field = (k, label, ph = "") => `<div><label class="f">${label}</label><input type="text" data-a="${k}" value="${esc(a[k])}" placeholder="${ph}"></div>`;
+  $("#settingsForm").innerHTML = `
+  <div class="card"><h2>Updates</h2><div id="updateCard" class="small muted">Checking…</div></div>
+  <div class="card"><h2>Appearance</h2><div class="tabs" id="themeTabs" style="margin:0"></div></div>
+  <div class="card" id="phoneCard"></div>
+  <div class="card local-only"><h2>AI rewording</h2>
+    <p class="small muted" style="margin-top:-6px">Optional. With an Anthropic API key, each resume gets reworded to match the job's language, and you can import a resume from a file. Usually a few cents per resume. Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>.</p>
+    <div class="row"><input type="password" id="apiKey" placeholder="${settings.api_key_set ? "Saved (" + settings.api_key_hint + "). Paste a new key to replace it" : "sk-ant-…"}" style="flex:1">
+    <button class="btn" onclick="saveKey()">Save key</button>${settings.api_key_set ? `<button class="btn ghost" onclick="testKey(this)">Test</button>` : ""}</div>
+    <div id="keyMsg"></div></div>
+  <div class="card"><h2>Application answers</h2>
+    <p class="small muted" style="margin-top:-6px">Used to fill in forms. Leave something blank and you'll answer it yourself in the form.</p>
+    <div class="grid2">
+      ${field("first_name", "First name")}${field("last_name", "Last name")}
+      ${field("email", "Email")}${field("phone", "Phone")}
+      ${field("city", "City, State")}${field("linkedin", "LinkedIn URL", "https://www.linkedin.com/in/…")}
+      <div><label class="f">Legally authorized to work in the US?</label>${yn("work_authorized_us", a.work_authorized_us)}</div>
+      <div><label class="f">Will you need visa sponsorship?</label>${yn("needs_sponsorship", a.needs_sponsorship)}</div>
+      ${field("salary_expectation", "Salary expectation", "e.g. 65000")}${field("earliest_start", "Earliest start", "e.g. 2 weeks notice")}
+      ${field("website", "Website / portfolio (optional)")}
+    </div>
+    <label class="toggle"><input type="checkbox" id="autoSubmit" ${c.apply.auto_submit ? "checked" : ""}>
+      <span><b>Submit automatically</b><br><span class="small muted">When every required field is filled, click Submit for me. Leave this off until you've watched it fill a few forms.</span></span></label>
+  </div>
+  <div class="card local-only"><h2>Job sites</h2>
+    <p class="small muted" style="margin-top:-6px">LinkedIn, Indeed and Glassdoor don't let apps search them directly, so AutoApply searches them through Google Jobs (via SerpApi) and Adzuna. Both have free plans. Your accounts on those sites are never touched.</p>
+    <label class="f">SerpApi key <small>· Google Jobs: LinkedIn, Indeed, Glassdoor, ZipRecruiter, company sites · <a href="https://serpapi.com/manage-api-key" target="_blank">get one</a></small></label>
+    <input type="password" data-src="serpapi_key" placeholder="${settings.sources?.serpapi_key ? "Saved (" + settings.sources.serpapi_key + "). Paste a new key to replace it" : "Paste your SerpApi key"}">
+    <div class="grid2">
+      <div><label class="f">Adzuna App ID <small>· <a href="https://developer.adzuna.com/admin/applications" target="_blank">get one</a></small></label><input type="text" data-src="adzuna_app_id" placeholder="${settings.sources?.adzuna_app_id ? "Saved (" + settings.sources.adzuna_app_id + ")" : "e.g. 1a2b3c4d"}"></div>
+      <div><label class="f">Adzuna App Key</label><input type="password" data-src="adzuna_app_key" placeholder="${settings.sources?.adzuna_app_key ? "Saved (" + settings.sources.adzuna_app_key + ")" : "Paste your Adzuna key"}"></div>
+    </div>
+    <label class="f">Search these</label>
+    <label class="toggle" style="margin:6px 0"><input type="checkbox" data-s="google" ${c.search.sources?.google !== false ? "checked" : ""}><span>Google Jobs</span></label>
+    <label class="toggle" style="margin:6px 0"><input type="checkbox" data-s="adzuna" ${c.search.sources?.adzuna !== false ? "checked" : ""}><span>Adzuna</span></label>
+    <label class="toggle" style="margin:6px 0"><input type="checkbox" data-s="company_boards" ${c.search.sources?.company_boards !== false ? "checked" : ""}><span>Company career pages listed below</span></label>
+    <div class="row" style="margin-top:8px"><button class="btn" onclick="saveSources()">Save job site keys</button></div>
+  </div>
+  <div class="card"><h2>Voluntary demographic questions</h2>
+    <p class="small muted" style="margin-top:-6px">Many US applications ask these. They're optional and legally can't be used in hiring decisions. Anything set to "Ask me each time" is left for you to answer in the form.</p>
+    <div class="grid2">
+      ${sel("eeo_gender", "Gender", [["Male","Male"],["Female","Female"],["Non-binary","Non-binary"],["Decline","Prefer not to say"]])}
+      ${sel("eeo_hispanic", "Hispanic or Latino?", [["No","No"],["Yes","Yes"],["Decline","Prefer not to say"]])}
+      <div><label class="f">Race <small>(most specific first, comma separated)</small></label><input type="text" data-a="eeo_race" value="${esc(a.eeo_race)}" placeholder="e.g. Filipino, Asian (or Decline)"></div>
+      ${sel("eeo_disability", "Disability", [["No","No disability"],["Yes","Yes"],["Decline","Prefer not to say"]])}
+      ${sel("eeo_veteran", "Veteran status", [["No","Not a protected veteran"],["Yes","Protected veteran"],["Decline","Prefer not to say"]])}
+    </div>
+  </div>
+  <div class="card"><h2>Job search</h2>
+    <label class="f">Job titles to look for <small>(comma separated)</small></label><textarea data-l="title_keywords" rows="2">${esc(s.title_keywords.join(", "))}</textarea>
+    <label class="f">Skip titles containing</label><textarea data-l="title_exclude" rows="2">${esc(s.title_exclude.join(", "))}</textarea>
+    <label class="f">Locations</label><input type="text" data-l="locations" value="${esc(s.locations.join(", "))}">
+    <label class="f">Minimum fit score: <span id="minV">${s.min_score}</span></label><input type="range" min="0" max="100" value="${s.min_score}" id="minScore" style="width:100%;accent-color:var(--accent)">
+    <label class="f">Companies to search <small>(the name from their job board URL, e.g. boards.greenhouse.io/<b>etsy</b>)</small></label>
+    <div class="grid2" style="grid-template-columns:1fr 1fr 1fr">
+      <div><label class="f small">Greenhouse</label><textarea data-b="greenhouse" rows="5">${esc((b.greenhouse || []).join("\n"))}</textarea></div>
+      <div><label class="f small">Lever</label><textarea data-b="lever" rows="5">${esc((b.lever || []).join("\n"))}</textarea></div>
+      <div><label class="f small">Ashby</label><textarea data-b="ashby" rows="5">${esc((b.ashby || []).join("\n"))}</textarea></div>
+    </div>
+  </div>
+  <div class="row"><button class="btn primary" onclick="saveSettings()">Save settings</button></div>`;
+  $("#minScore").oninput = e => $("#minV").textContent = e.target.value;
+  drawPhone(); drawTheme(); drawUpdateCard();
+}
+function collectSettings() {
+  const c = settings.config, split = v => v.split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+  document.querySelectorAll("#settingsForm [data-a]").forEach(el => c.applicant[el.dataset.a] = el.value.trim());
+  document.querySelectorAll("#settingsForm [data-l]").forEach(el => c.search[el.dataset.l] = split(el.value));
+  document.querySelectorAll("#settingsForm [data-b]").forEach(el => c.boards[el.dataset.b] = split(el.value));
+  c.search.min_score = +$("#minScore").value; c.apply.auto_submit = $("#autoSubmit").checked;
+  c.search.sources = c.search.sources || {};
+  document.querySelectorAll("#settingsForm [data-s]").forEach(el => c.search.sources[el.dataset.s] = el.checked);
+  return c;
+}
+async function saveSources() {
+  const src = typedSources($("#settingsForm"));
+  settings = await api("/api/settings", {method: "PUT", json: {config: collectSettings(), sources: src}});
+  toast("Job site keys saved"); loadSettings();
+}
+function typedSources(root = document) {
+  const src = {}; root.querySelectorAll("[data-src]").forEach(el => { if (el.value.trim()) src[el.dataset.src] = el.value.trim(); });
+  return src;
+}
+async function saveSettings() {
+  const src = typedSources($("#settingsForm"));
+  settings = await api("/api/settings", {method: "PUT", json: {config: collectSettings(), sources: src}});
+  toast(Object.keys(src).length ? "Settings and keys saved" : "Settings saved");
+  if (Object.keys(src).length) loadSettings();
+}
+async function saveKey() {
+  const k = $("#apiKey").value.trim(); if (!k) return;
+  await api("/api/settings", {method: "PUT", json: {api_key: k, config: collectSettings()}}); toast("Key saved"); loadSettings(); refreshState();
+}
+async function testKey(btn) {
+  btn.innerHTML = `<span class="spinner"></span>`;
+  try { await api("/api/test-key", {method: "POST"}); notice($("#keyMsg"), "Key works.", "ok"); } catch (e) { notice($("#keyMsg"), esc(e.message), "err"); }
+  btn.textContent = "Test";
+}
+
+/* ---------- first-run setup ---------- */
+let wiz = {step: 0};
+function wizard() {
+  const W = $("#wizBody"), steps = 4, bar = `<div class="steps">${[...Array(steps)].map((_, i) => `<i class="${i <= wiz.step ? "on" : ""}"></i>`).join("")}</div>`;
+  $("#wizard").classList.remove("hide");
+  if (wiz.step === 0) W.innerHTML = bar + `<h1>Welcome to AutoApply</h1>
+    <p class="sub" style="margin-top:8px">Paste any job and get a resume tailored to it in seconds, and let AutoApply fill out the application for you. Setup takes about two minutes.</p>
+    <p class="small muted">Your resume is never padded with skills you don't have. Everything stays on this computer.</p>
+    <div class="row" style="margin-top:22px"><button class="btn primary lg" onclick="wiz.step=1;wizard()">Get started</button></div>`;
+  if (wiz.step === 1) W.innerHTML = bar + `<h2>1 · AI rewording <span class="muted small">(optional)</span></h2>
+    <p class="small muted">An Anthropic API key lets AutoApply reword your resume for each job and import your resume from a file. It costs a few cents per resume. You can skip this and add it later in Settings.</p>
+    <a href="https://console.anthropic.com/settings/keys" target="_blank" class="small">Get a key →</a>
+    <input type="password" id="wKey" placeholder="${state.has_key ? "A key is already saved" : "sk-ant-…"}" style="margin-top:12px">
+    <div id="wMsg"></div>
+    <div class="row" style="margin-top:18px"><button class="btn primary" onclick="wizKey()">Continue</button><button class="btn ghost" onclick="wiz.step=2;wizard()">Skip</button></div>`;
+  if (wiz.step === 2) W.innerHTML = bar + `<h2>2 · Your resume</h2>
+    ${state.has_profile ? `<div class="notice ok">A resume for <b>${esc(state.profile_name)}</b> is already loaded.</div>
+       <div class="row"><button class="btn primary" onclick="wiz.step=3;wizard()">Use this resume</button><span class="muted small">or import a different one below</span></div>` : ""}
+    <div class="drop" id="drop" style="margin-top:16px"><b>Drop your resume here</b><br><span class="small">or click to choose (PDF or Word)</span><input type="file" id="wFile" accept=".pdf,.docx,.txt" hidden></div>
+    <div id="wMsg"></div>
+    ${!state.has_key ? `<p class="small muted">Importing from a file needs the API key from step 1. Without one, you can type your resume into <b>My resume</b> after setup.</p>
+      <div class="row"><button class="btn ghost" onclick="wiz.step=1;wizard()">← Add a key</button>${!state.has_profile ? `<button class="btn ghost" onclick="wiz.step=3;wizard()">I'll type it in later</button>` : ""}</div>` : ""}`;
+  if (wiz.step === 2) {
+    const d = $("#drop"), fi = $("#wFile");
+    d.onclick = () => fi.click();
+    d.ondragover = e => { e.preventDefault(); d.classList.add("over"); }; d.ondragleave = () => d.classList.remove("over");
+    d.ondrop = e => { e.preventDefault(); d.classList.remove("over"); wizImport(e.dataTransfer.files[0]); };
+    fi.onchange = () => wizImport(fi.files[0]);
+  }
+  if (wiz.step === 3) api("/api/settings").then(s => { settings = s; const a = s.config.applicant;
+    W.innerHTML = bar + `<h2>3 · Quick application questions</h2>
+    <p class="small muted">Nearly every application asks these. Answer once and they're filled in for you. You can change them anytime in Settings.</p>
+    <label class="f">Legally authorized to work in the US?</label><select id="w_auth"><option value="">Ask me each time</option>${["Yes","No"].map(o => `<option ${a.work_authorized_us === o ? "selected" : ""}>${o}</option>`).join("")}</select>
+    <label class="f">Will you need visa sponsorship?</label><select id="w_spon"><option value="">Ask me each time</option>${["Yes","No"].map(o => `<option ${a.needs_sponsorship === o ? "selected" : ""}>${o}</option>`).join("")}</select>
+    <label class="f">LinkedIn URL</label><input type="text" id="w_li" value="${esc(a.linkedin)}" placeholder="https://www.linkedin.com/in/…">
+    <label class="f">Salary expectation <small>(optional)</small></label><input type="text" id="w_sal" value="${esc(a.salary_expectation)}" placeholder="e.g. 65000">
+    <div class="row" style="margin-top:20px"><button class="btn primary" onclick="wizAnswers()">Finish</button></div>`; });
+  if (wiz.step === 4) W.innerHTML = bar + `<h1>You're all set</h1>
+    <p class="sub" style="margin-top:8px">Paste a job link or description to get your first tailored resume.</p>
+    <div class="row"><button class="btn primary lg" onclick="finishWizard()">Start</button></div>`;
+}
+async function wizKey() {
+  const k = $("#wKey").value.trim();
+  if (k) {
+    notice($("#wMsg"), `<span class="spinner"></span> Checking key…`, "info");
+    await api("/api/settings", {method: "PUT", json: {api_key: k}});
+    try { await api("/api/test-key", {method: "POST"}); } catch (e) { return notice($("#wMsg"), esc(e.message), "err"); }
+    await refreshState();
+  }
+  wiz.step = 2; wizard();
+}
+async function wizImport(f) {
+  if (!f) return;
+  notice($("#wMsg"), `<span class="spinner"></span> Reading ${esc(f.name)}… (about 20 seconds)`, "info");
+  try { await importFile(f); await refreshState(); notice($("#wMsg"), `Imported resume for <b>${esc(state.profile_name)}</b>. You can review it later in My resume.`, "ok");
+        setTimeout(() => { wiz.step = 3; wizard(); }, 1400); }
+  catch (e) { notice($("#wMsg"), esc(e.message), "err"); }
+}
+async function wizAnswers() {
+  const c = settings.config;
+  Object.assign(c.applicant, {work_authorized_us: $("#w_auth").value, needs_sponsorship: $("#w_spon").value,
+    linkedin: $("#w_li").value.trim(), salary_expectation: $("#w_sal").value.trim()});
+  await api("/api/settings", {method: "PUT", json: {config: c}});
+  if ($("#w_li").value.trim()) { const p = await api("/api/profile"); if (p.name) { p.contact.linkedin_url = $("#w_li").value.trim(); await api("/api/profile", {method: "PUT", json: p}); } }
+  wiz.step = 4; wizard();
+}
+async function finishWizard() {
+  await api("/api/setup-done", {method: "POST"}); $("#wizard").classList.add("hide");
+  if (!state.has_profile) { show("resume"); toast("Start by filling in your resume"); } else $("#jobInput").focus();
+}
+
+async function quitApp() {
+  if (!confirm("Quit AutoApply? Your phone won't be able to reach it until you open it again.")) return;
+  await api("/api/quit", {method: "POST"}).catch(() => {});
+  document.body.innerHTML = '<div class="empty" style="padding-top:30vh"><h1>AutoApply is closed</h1><p class="muted">Open it again from your Applications folder, Start menu or desktop shortcut.</p></div>';
+}
+
+/* ---------- updates ---------- */
+let upd = null;
+async function loadUpdate(force) {
+  try { upd = await api("/api/update" + (force ? "?force=1" : "")); } catch (e) { return; }
+  const b = $("#updateBanner");
+  if (upd.available && upd.state === "idle") {
+    b.className = "notice info";
+    b.innerHTML = `<div class="row"><div style="flex:1"><b>Update available: version ${esc(upd.latest)}</b>${upd.notes ? `<div class="small" style="margin-top:2px">${esc(upd.notes)}</div>` : ""}</div>
+      <button class="btn primary small" onclick="startUpdate()">Update now</button></div>`;
+  } else if (upd.error && upd.state === "idle" && !/check/i.test(upd.error)) {
+    b.className = "notice err"; b.textContent = upd.error;
+  } else b.className = "hide";
+  drawUpdateCard();
+}
+function drawUpdateCard() {
+  const el = $("#updateCard"); if (!el || !upd) return;
+  el.innerHTML = `You have version <b>${esc(upd.current)}</b>. ${upd.available ? `Version <b>${esc(upd.latest)}</b> is available.` : (upd.latest ? "That's the latest." : "")}
+    ${upd.error ? `<div class="notice err">${esc(upd.error)}</div>` : ""}
+    <label class="toggle"><input type="checkbox" ${upd.auto ? "checked" : ""} onchange="api('/api/update/auto',{method:'PUT',json:{auto:this.checked}}).then(r=>{upd=r;toast('Saved')})">
+      <span><b>Install updates automatically</b><br><span class="small muted">When AutoApply opens, it installs any new version first. Your resume, settings and keys are never touched.</span></span></label>
+    <div class="row">${upd.available ? `<button class="btn primary small" onclick="startUpdate()">Update now</button>` : ""}
+      <button class="btn small" onclick="this.innerHTML='<span class=spinner></span>';loadUpdate(true)">Check now</button></div>`;
+}
+async function startUpdate() {
+  try { await api("/api/update", {method: "POST"}); } catch (e) { return toast(e.message); }
+  const b = $("#updateBanner"); b.className = "notice info";
+  const target = upd.latest;
+  const show = m => b.innerHTML = `<span class="spinner"></span> ${esc(m)}`;
+  show("Updating…");
+  const t = setInterval(async () => {
+    try {
+      const s = await fetch("/api/state").then(r => r.json());
+      if (s.version === target) { clearInterval(t); show("Updated! Reloading…"); setTimeout(() => location.reload(), 600); return; }
+      const u = await fetch("/api/update").then(r => r.json());
+      if (u.error && u.state === "idle") { clearInterval(t); b.className = "notice err"; b.textContent = u.error; return; }
+      show(u.message || "Updating…");
+    } catch (e) { show("Restarting AutoApply…"); }   // server is restarting
+  }, 1200);
+}
+
+/* ---------- theme ---------- */
+const THEMES = {dark: "Dark", light: "Light", system: "Match my device"};
+function getTheme() { return document.documentElement.dataset.theme || "dark"; }
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("aa_theme", t); } catch (e) {}
+  const dark = t === "dark" || (t === "system" && !matchMedia("(prefers-color-scheme: light)").matches);
+  document.querySelector('meta[name=theme-color]').content = dark ? "#121311" : "#f6f5f2";
+  drawTheme();
+}
+function cycleTheme() { const k = Object.keys(THEMES); setTheme(k[(k.indexOf(getTheme()) + 1) % k.length]); }
+function drawTheme() {
+  const b = $("#themeBtn"); if (b) b.textContent = "Theme: " + THEMES[getTheme()];
+  const tabs = $("#themeTabs");
+  if (tabs) tabs.innerHTML = Object.entries(THEMES).map(([k, v]) => `<button class="${k === getTheme() ? "on" : ""}" onclick="setTheme('${k}')">${v}</button>`).join("");
+}
+
+/* ---------- phone ---------- */
+async function drawPhone() {
+  const el = $("#phoneCard"); if (!el) return;
+  if (state.is_remote) { el.innerHTML = `<h2>Use on my phone</h2><p class="small muted">You're using AutoApply from your phone right now. Keep the app open on your computer, on the same Wi-Fi.</p>`; return; }
+  const p = await api("/api/phone");
+  el.innerHTML = `<h2>Use on my phone</h2>
+    <p class="small muted" style="margin-top:-6px">Use AutoApply from your phone while this computer is on, the app is open, and both are on the same Wi-Fi. You can tailor resumes, download them and track applications. "Fill out application" opens the form on this computer's screen.</p>
+    <label class="toggle"><input type="checkbox" ${p.enabled ? "checked" : ""} onchange="setPhone({enabled:this.checked})"><span><b>Allow my phone to connect</b></span></label>
+    ${p.enabled ? `<div class="row" style="align-items:flex-start;gap:24px">
+      <div class="qr">${p.qr}</div>
+      <div style="flex:1;min-width:220px">
+        <ol class="small" style="padding-left:18px;margin:0">
+          <li>Point your phone's camera at the code (or type <b>${esc(p.url)}</b> into its browser).</li>
+          <li>Enter the PIN: <b style="font-size:20px;letter-spacing:3px">${esc(p.pin)}</b></li>
+          <li>Add it to your home screen so it opens like an app.<br><span class="muted">iPhone: Share → Add to Home Screen. Android: ⋮ → Add to Home screen.</span></li>
+        </ol>
+        <div class="row" style="margin-top:14px"><button class="btn small" onclick="if(confirm('Make a new PIN? Phones already connected will need to enter it.'))setPhone({new_pin:true})">New PIN</button></div>
+        <p class="small muted">If your phone can't connect: make sure it's on the same Wi-Fi (not cellular), and if your computer asks whether to allow incoming connections for Python, click Allow.</p>
+      </div></div>` : ""}`;
+}
+async function setPhone(body) { await api("/api/phone", {method: "POST", json: body}); await refreshState(); drawPhone(); }
+
+/* ---------- boot ---------- */
+(async () => {
+  setTheme(getTheme());
+  await refreshState();
+  api("/api/settings").then(s => settings = s);
+  if (!state.setup_done) wizard();
+  loadUpdate();
+  const busy = (await api("/api/jobs")).find(j => j.status === "applying");
+  if (busy) { renderResult(busy); watch(busy.id); }
+})();
+</script>
+</body>
+</html>

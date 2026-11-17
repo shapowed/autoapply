@@ -1,0 +1,332 @@
+"""Job discovery from public ATS job-board APIs (Greenhouse, Lever, Ashby)."""
+import html
+import re
+from dataclasses import dataclass, field
+
+import requests
+
+UA = {"User-Agent": "Mozilla/5.0 (job-search script; personal use)"}
+
+
+@dataclass
+class Job:
+    source: str
+    company: str
+    job_id: str
+    title: str
+    location: str
+    url: str          # public posting / apply page
+    description: str  # plain text
+    extra: dict = field(default_factory=dict)
+
+    @property
+    def key(self):
+        return f"{self.source}:{self.company}:{self.job_id}"
+
+
+def strip_html(s: str) -> str:
+    s = s or ""
+    for _ in range(3):  # Greenhouse content can be double-escaped
+        u = html.unescape(s)
+        if u == s:
+            break
+        s = u
+    s = re.sub(r"<(br|/p|/li|/h\d)[^>]*>", "\n", s, flags=re.I)
+    s = re.sub(r"<li[^>]*>", "• ", s, flags=re.I)
+    s = re.sub(r"<[^>]+>", " ", s)
+    s = html.unescape(s)
+    return re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n", s)).strip()
+
+
+def greenhouse(slug):
+    r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
+                     params={"content": "true"}, headers=UA, timeout=30)
+    r.raise_for_status()
+    for j in r.json().get("jobs", []):
+        yield Job("greenhouse", slug, str(j["id"]), j["title"],
+                  (j.get("location") or {}).get("name", ""), j["absolute_url"],
+                  strip_html(j.get("content", "")))
+
+
+def lever(slug):
+    r = requests.get(f"https://api.lever.co/v0/postings/{slug}", params={"mode": "json"},
+                     headers=UA, timeout=30)
+    r.raise_for_status()
+    for j in r.json():
+        desc = j.get("descriptionPlain", "") + "\n" + "\n".join(
+            f"{l.get('text','')}\n{strip_html(l.get('content',''))}" for l in j.get("lists", []))
+        yield Job("lever", slug, j["id"], j["text"],
+                  (j.get("categories") or {}).get("location", ""),
+                  j.get("applyUrl") or j["hostedUrl"] + "/apply", desc)
+
+
+def ashby(slug):
+    r = requests.get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}",
+                     headers=UA, timeout=30)
+    r.raise_for_status()
+    for j in r.json().get("jobs", []):
+        loc = j.get("location", "") + (" Remote" if j.get("isRemote") else "")
+        yield Job("ashby", slug, j["id"], j["title"], loc,
+                  j.get("applyUrl") or j.get("jobUrl", ""),
+                  j.get("descriptionPlain") or strip_html(j.get("descriptionHtml", "")))
+
+
+FETCHERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby}
+
+
+# ---------------------------------------------------------------- big job sites (via aggregators)
+BIG_BOARDS = ("linkedin", "indeed", "glassdoor", "ziprecruiter", "monster", "simplyhired", "dice",
+              "careerbuilder", "builtin", "wellfound", "talent.com", "jooble", "adzuna", "lensa", "bebee")
+
+
+def _best_apply(options):
+    """From a job's 'Apply on …' links pick: an ATS form we can fill > the company's own site > anything."""
+    links = [o for o in options if o.get("link")]
+    for o in links:
+        try:
+            parse_job_url(o["link"])
+            return o, True
+        except ValueError:
+            pass
+    for o in links:
+        if not any(b in o["link"].lower() for b in BIG_BOARDS):
+            return o, False
+    return (links[0] if links else {}), False
+
+
+def _ats_job_from(link, title, company_name, location, description, extra):
+    """If an apply link is Greenhouse/Lever/Ashby, make it a job AutoApply can fill out."""
+    source, slug, jid = parse_job_url(link)
+    url = link if source != "greenhouse" else f"https://job-boards.greenhouse.io/{slug}/jobs/{jid}"
+    return Job(source, slug, jid, title, location, url, description, {**extra, "company_name": company_name})
+
+
+def google_jobs(query, location, api_key, pages=1, log=print):
+    """Google Jobs (which lists LinkedIn, Indeed, Glassdoor, ZipRecruiter and company sites) via SerpApi."""
+    token = None
+    for _ in range(max(1, pages)):
+        params = {"engine": "google_jobs", "q": query, "api_key": api_key, "hl": "en", "gl": "us"}
+        if location:
+            params["location"] = location
+        if token:
+            params["next_page_token"] = token
+        r = requests.get("https://serpapi.com/search.json", params=params, headers=UA, timeout=60)
+        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if r.status_code != 200 or data.get("error"):
+            err = data.get("error") or f"HTTP {r.status_code}"
+            if "hasn't returned any results" in err:
+                return
+            raise RuntimeError(f"Google Jobs: {err}")
+        for j in data.get("jobs_results", []):
+            options = j.get("apply_options") or []
+            best, fillable = _best_apply(options)
+            extra = {"via": (j.get("via") or "").replace("via ", ""), "company_name": j.get("company_name", ""),
+                     "apply_options": [{"title": o.get("title", ""), "link": o.get("link", "")} for o in options][:6],
+                     "posted": (j.get("detected_extensions") or {}).get("posted_at", "")}
+            desc = j.get("description", "")
+            if fillable:
+                yield _ats_job_from(best["link"], j.get("title", ""), j.get("company_name", ""),
+                                    j.get("location", ""), desc, extra)
+            else:
+                yield Job("google", j.get("company_name", ""), str(j.get("job_id", ""))[:60] or j.get("title", ""),
+                          j.get("title", ""), j.get("location", ""),
+                          best.get("link") or j.get("share_link", ""), desc, extra)
+        token = (data.get("serpapi_pagination") or {}).get("next_page_token")
+        if not token:
+            return
+
+
+def adzuna(query, location, app_id, app_key, pages=1, max_days_old=14, log=print):
+    """Adzuna job search (collects listings from many US job boards)."""
+    for page in range(1, max(1, pages) + 1):
+        params = {"app_id": app_id, "app_key": app_key, "what": query, "results_per_page": 50,
+                  "max_days_old": max_days_old, "content-type": "application/json"}
+        if location:
+            params["where"] = location
+        r = requests.get(f"https://api.adzuna.com/v1/api/jobs/us/search/{page}", params=params,
+                         headers=UA, timeout=60)
+        if r.status_code in (401, 403):
+            raise RuntimeError("Adzuna rejected the keys. Check the App ID and App Key in Settings "
+                               "(new accounts can take a little while to activate).")
+        r.raise_for_status()
+        results = r.json().get("results", [])
+        for j in results:
+            yield Job("adzuna", (j.get("company") or {}).get("display_name", "") or "Unknown company",
+                      str(j.get("id", "")), strip_html(j.get("title", "")),
+                      (j.get("location") or {}).get("display_name", ""), j.get("redirect_url", ""),
+                      strip_html(j.get("description", "")),
+                      {"via": "Adzuna", "snippet_only": True, "posted": j.get("created", "")[:10],
+                       "company_name": (j.get("company") or {}).get("display_name", "")})
+        if len(results) < 50:
+            return
+
+
+def full_description(job, log=print):
+    """Adzuna only gives a snippet; try to fetch the full posting before tailoring."""
+    if not job.extra.get("snippet_only") or not job.url:
+        return job
+    try:
+        r = requests.get(job.url, headers=UA, timeout=20, allow_redirects=True)
+        # an ATS page we can read properly through its API?
+        try:
+            better = fetch_job(r.url)
+            better.extra = {**job.extra, **better.extra, "snippet_only": False, "company_name": job.company}
+            return better
+        except Exception:  # noqa: BLE001
+            pass
+        text = strip_html(re.sub(r"(?is)<(script|style|nav|header|footer)[^>]*>.*?</\1>", " ", r.text))
+        if len(text) > len(job.description) + 300:
+            job.description = text[:15000]
+            job.extra["snippet_only"] = False
+    except Exception as e:  # noqa: BLE001
+        log(f"  (couldn't load the full posting: {e})")
+    return job
+
+
+def _dedupe_key(j):
+    return re.sub(r"\W+", "", (j.extra.get("company_name") or j.company).lower()) + "|" + re.sub(r"\W+", "", j.title.lower())
+
+
+def title_ok(title, cfg):
+    t = title.lower()
+    if any(x.lower() in t for x in cfg["title_exclude"]):
+        return False
+    return any(k.lower() in t for k in cfg["title_keywords"])
+
+
+def location_ok(loc, cfg):
+    l = (loc or "").lower()
+    return any(x.lower() in l for x in cfg["locations"])
+
+
+def discover(config, log=print, keys=None):
+    keys = keys or {}
+    srch = config["search"]
+    src = srch.get("sources", {})
+    queries = srch.get("queries") or srch["title_keywords"][:3]
+    where = srch.get("location", "")
+    out = []
+
+    if src.get("google", True) and not keys.get("serpapi_key"):
+        log("  Google Jobs (LinkedIn, Indeed, Glassdoor…): skipped, no SerpApi key saved")
+    if src.get("adzuna", True) and not (keys.get("adzuna_app_id") and keys.get("adzuna_app_key")):
+        log("  Adzuna: skipped, no Adzuna keys saved")
+    if src.get("google", True) and keys.get("serpapi_key"):
+        for q in queries:
+            try:
+                found = [j for j in google_jobs(q, where, keys["serpapi_key"], srch.get("google_pages", 1), log)
+                         if not _excluded(j.title, srch)]
+                log(f"  Google Jobs '{q}': {len(found)} jobs")
+                out.extend(found)
+            except Exception as e:  # noqa: BLE001
+                log(f"  ! Google Jobs '{q}': {e}")
+    if src.get("adzuna", True) and keys.get("adzuna_app_id") and keys.get("adzuna_app_key"):
+        for q in queries:
+            try:
+                found = [j for j in adzuna(q, where, keys["adzuna_app_id"], keys["adzuna_app_key"],
+                                           srch.get("adzuna_pages", 1), log=log) if not _excluded(j.title, srch)]
+                log(f"  Adzuna '{q}': {len(found)} jobs")
+                out.extend(found)
+            except Exception as e:  # noqa: BLE001
+                log(f"  ! Adzuna '{q}': {e}")
+    if not src.get("company_boards", True):
+        return _dedupe(out)
+    for source, slugs in config["boards"].items():
+        for slug in slugs or []:
+            try:
+                jobs = list(FETCHERS[source](slug))
+            except Exception as e:  # noqa: BLE001
+                if "404" in str(e):
+                    log(f"  ! {source}/{slug}: no {source.title()} job board with that name. Remove it in Settings → Job search.")
+                else:
+                    log(f"  ! {source}/{slug}: {e}")
+                continue
+            kept = [j for j in jobs if title_ok(j.title, config["search"])
+                    and location_ok(j.location, config["search"])]
+            log(f"  {source}/{slug}: {len(jobs)} jobs, {len(kept)} match title+location")
+            out.extend(kept)
+    return _dedupe(out)
+
+
+def _excluded(title, cfg):
+    t = title.lower()
+    return any(x.lower() in t for x in cfg["title_exclude"])
+
+
+def _dedupe(jobs):
+    """Same job from several sources: keep the one we can do the most with."""
+    rank = {"greenhouse": 0, "lever": 0, "ashby": 0, "google": 1, "adzuna": 2}
+    best = {}
+    for j in jobs:
+        k = _dedupe_key(j)
+        if k not in best or rank.get(j.source, 3) < rank.get(best[k].source, 3):
+            best[k] = j
+    return list(best.values())
+
+
+# ---------------------------------------------------------------- single job from a URL
+URL_PATTERNS = [
+    ("greenhouse", r"greenhouse\.io/(?:embed/job_app\?for=)?([\w-]+)/jobs/(\d+)"),
+    ("greenhouse", r"greenhouse\.io/embed/job_app\?.*?for=([\w-]+).*?token=(\d+)"),
+    ("lever", r"jobs\.lever\.co/([\w.-]+)/([0-9a-f-]{36})"),
+    ("ashby", r"jobs\.ashbyhq\.com/([\w.%-]+)/([0-9a-f-]{36})"),
+]
+
+
+def parse_job_url(url, slug=None):
+    """Return (source, company_slug, job_id) or raise ValueError with advice."""
+    for source, rx in URL_PATTERNS:
+        m = re.search(rx, url, re.I)
+        if m:
+            return source, m.group(1), m.group(2)
+    # Company careers pages that embed Greenhouse use ?gh_jid=<id>
+    m = re.search(r"[?&]gh_jid=(\d+)", url)
+    if m:
+        if not slug:
+            raise ValueError(
+                "This is a Greenhouse job on the company's own site. Re-run with --slug <company>, "
+                "where <company> is the name in boards.greenhouse.io/<company> (try the company name, lowercase).")
+        return "greenhouse", slug, m.group(1)
+    raise ValueError(
+        "Not a Greenhouse/Lever/Ashby link, so I can't fill this form automatically.\n"
+        "    Tip: on LinkedIn/Indeed click 'Apply' (not Easy Apply) and copy the URL it opens.\n"
+        "    Or paste the description into jd.txt and run:  python main.py tailor jd.txt")
+
+
+def fetch_job(url, slug=None):
+    source, company, job_id = parse_job_url(url, slug)
+    if source == "greenhouse":
+        r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{company}/jobs/{job_id}",
+                         headers=UA, timeout=30)
+        if r.status_code == 404:
+            raise ValueError(f"Greenhouse has no job {job_id} under '{company}' (closed, or wrong --slug).")
+        r.raise_for_status()
+        j = r.json()
+        return Job("greenhouse", company, job_id, j["title"], (j.get("location") or {}).get("name", ""),
+                   j["absolute_url"], strip_html(j.get("content", "")))
+    if source == "lever":
+        r = requests.get(f"https://api.lever.co/v0/postings/{company}/{job_id}", headers=UA, timeout=30)
+        if r.status_code == 404:
+            raise ValueError("Lever says this posting is closed or doesn't exist.")
+        r.raise_for_status()
+        j = r.json()
+        desc = j.get("descriptionPlain", "") + "\n" + "\n".join(
+            f"{l.get('text','')}\n{strip_html(l.get('content',''))}" for l in j.get("lists", []))
+        return Job("lever", company, job_id, j["text"], (j.get("categories") or {}).get("location", ""),
+                   j.get("applyUrl") or j["hostedUrl"] + "/apply", desc)
+    # ashby: no single-job endpoint, so search the board
+    for j in ashby(company):
+        if j.job_id == job_id:
+            return j
+    raise ValueError("Ashby posting not found (closed?).")
+
+
+def manual_job(jd_path=None, company="manual", title="", url="", text=None):
+    """Tailor for a job you found anywhere (LinkedIn, Indeed...): a .txt file or pasted text."""
+    if text is None:
+        text = open(jd_path, encoding="utf-8").read()
+    if not title:
+        title = text.strip().splitlines()[0][:80]
+    import hashlib
+    jid = hashlib.md5(text.encode()).hexdigest()[:10]
+    return Job("manual", company, jid, title, "", url, text)

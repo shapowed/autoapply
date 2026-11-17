@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AutoApply</title>
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#121311">
+<script>(function(){var t="dark";try{t=localStorage.getItem("aa_theme")||"dark"}catch(e){}
+document.documentElement.dataset.theme=t;})()</script>
+<style>
+:root{ --bg:#121311;--panel:#1b1c1a;--ink:#ecebe6;--muted:#9c9b95;--line:#2c2d29;--accent:#7fb8a4;--btn-ink:#0f1f19;--bad:#e88b7b;  }
+:root[data-theme=light]{ --bg:#f6f5f2;--panel:#fff;--ink:#1d1d1b;--muted:#6b6a66;--line:#e6e3dc;--accent:#2f5d50;--btn-ink:#fff;--bad:#a33b2b; }
+@media (prefers-color-scheme:light){ :root[data-theme=system]{ --bg:#f6f5f2;--panel:#fff;--ink:#1d1d1b;--muted:#6b6a66;--line:#e6e3dc;--accent:#2f5d50;--btn-ink:#fff;--bad:#a33b2b; } }
+:root{color-scheme:dark} :root[data-theme=light]{color-scheme:light}
+@media (prefers-color-scheme:light){ :root[data-theme=system]{color-scheme:light} }
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,system-ui,sans-serif;padding:24px;box-sizing:border-box}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:32px 26px;max-width:340px;width:100%;text-align:center}
+img{width:64px;height:64px;border-radius:14px}
+h1{font-size:22px;margin:14px 0 4px}p{color:var(--muted);margin:0 0 22px;font-size:14px}
+input{width:100%;box-sizing:border-box;font-size:28px;letter-spacing:10px;text-align:center;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink)}
+button{margin-top:16px;width:100%;padding:14px;border:0;border-radius:12px;background:var(--accent);color:var(--btn-ink);font-size:16px;font-weight:600}
+.err{color:var(--bad);font-size:14px;min-height:22px;margin-top:10px}
+</style></head><body>
+<form class="box" id="f">
+  <img src="/static/icon-192.png" alt="">
+  <h1>AutoApply</h1>
+  <p>Enter the 6-digit PIN shown in Settings → Use on my phone, on your computer.</p>
+  <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" autofocus>
+  <button>Unlock</button>
+  <div class="err" id="err"></div>
+</form>
+<script>
+document.getElementById("f").onsubmit = async e => {
+  e.preventDefault();
+  const r = await fetch("/login", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({pin: document.getElementById("pin").value})});
+  if (r.ok) location.href = "/";
+  else document.getElementById("err").textContent = (await r.json().catch(() => ({}))).error || "Try again";
+};
+</script></body></html>

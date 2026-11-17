@@ -1,0 +1,84 @@
+applicant:
+  city: ''
+  earliest_start: ''
+  eeo_disability: ''
+  eeo_gender: ''
+  eeo_race: ''
+  eeo_veteran: ''
+  email: ''
+  first_name: ''
+  last_name: ''
+  linkedin: ''
+  needs_sponsorship: ''
+  phone: ''
+  salary_expectation: ''
+  website: ''
+  work_authorized_us: ''
+  eeo_hispanic: ''
+apply:
+  auto_submit: false
+  headless: false
+boards:
+  ashby:
+  - ramp
+  - notion
+  greenhouse:
+  - datadog
+  - mongodb
+  - squarespace
+  - betterment
+  - oscar
+  - peloton
+  lever:
+  - palantir
+search:
+  locations:
+  - New York
+  - NY
+  - Brooklyn
+  - Queens
+  - Remote
+  - Jersey City
+  - Long Island
+  max_applications_per_run: 15
+  min_score: 55
+  title_exclude:
+  - Senior
+  - Sr.
+  - Principal
+  - Staff
+  - Manager
+  - Director
+  - Lead
+  - Architect
+  - Head of
+  title_keywords:
+  - IT Support
+  - Help Desk
+  - Helpdesk
+  - Service Desk
+  - Desktop Support
+  - IT Analyst
+  - IT Technician
+  - Network Technician
+  - Network Support
+  - NOC
+  - Systems Support
+  - Technical Support
+  - Security Analyst
+  - SOC Analyst
+  queries:
+  - IT Support
+  - Help Desk
+  location: New York, NY
+  sources:
+    google: true
+    adzuna: true
+    company_boards: true
+  google_pages: 1
+  adzuna_pages: 1
+tailoring:
+  model: claude-sonnet-5-5
+  use_claude: true
+updates:
+  auto_install: true

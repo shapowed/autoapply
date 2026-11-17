@@ -1,0 +1,10 @@
+IT Support Analyst
+We are looking for an IT Support Analyst to join our NYC office. You will provide desktop support and help desk services to 400 employees.
+Responsibilities:
+- Resolve tickets in ServiceNow within SLA; maintain knowledge base documentation
+- Support Windows 11 and macOS endpoints, imaging and deployment with Intune and Jamf
+- Manage user accounts in Active Directory and Microsoft 365 (Exchange Online, Teams, SharePoint)
+- Troubleshoot network issues: VLANs, DHCP, DNS, Wi-Fi, Cisco Meraki access points and switches
+- Support VoIP phones and AV conference rooms (Zoom, Webex)
+- Assist with onboarding/offboarding and asset management / inventory
+Requirements: 2+ years help desk experience, CompTIA A+ preferred, Network+ a plus. Familiarity with Okta and MFA.

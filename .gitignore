@@ -1,0 +1,13 @@
+# personal data: never committed
+profile.yaml
+profile.yaml.backup
+config.yaml
+data/*
+!data/sample_jd.txt
+output/
+Resumes/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
