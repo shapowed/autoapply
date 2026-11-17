@@ -1,4 +1,4 @@
 {
-  "version": "1.3.2",
-  "notes": "Fixed: Workday applications stopped right away with \"got stuck: 'applying'\". The Workday assistant now runs all the way to the Review page."
+  "version": "1.3.3",
+  "notes": "Fixed Ashby and Lever applications not filling when the link came from Google Jobs (it opened the description page instead of the form). Also: Yes/No button questions are answered, the resume goes into the right upload box, and updates now show up within about 15 minutes."
 }

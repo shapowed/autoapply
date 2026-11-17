@@ -79,10 +79,14 @@ def pick_option(options, prefs):
 
 
 def apply_url(job):
+    """The application form itself, built from the job's ids (links from Google Jobs etc. carry
+    tracking codes, and some open the description page instead of the form)."""
     if job.source == "greenhouse":   # bypass company iframes, go to the hosted form
         return f"https://job-boards.greenhouse.io/{job.company}/jobs/{job.job_id}"
-    if job.source == "ashby" and "/application" not in job.url:
-        return job.url.rstrip("/") + "/application"
+    if job.source == "ashby":
+        return f"https://jobs.ashbyhq.com/{job.company}/{job.job_id}/application"
+    if job.source == "lever":
+        return f"https://jobs.lever.co/{job.company}/{job.job_id}/apply"
     return job.url
 
 
@@ -168,6 +172,42 @@ def _fill_control(page, ctl, value, key=""):
     return True
 
 
+YES_NO_JS = """() => {
+  const btns = [...document.querySelectorAll('button, [role=button]')].filter(b => /^(yes|no)$/i.test((b.innerText || '').trim()));
+  const groups = new Map();
+  for (const b of btns) {
+    let n = b.parentElement;
+    for (let d = 0; d < 5 && n; d++, n = n.parentElement) {
+      const t = [...n.querySelectorAll('button, [role=button]')].map(x => (x.innerText || '').trim().toLowerCase());
+      if (t.includes('yes') && t.includes('no')) break;
+    }
+    if (!n || groups.has(n)) continue;
+    let q = n.parentElement || n;
+    for (let d = 0; d < 3 && q && (q.innerText || '').replace(/\\b(yes|no)\\b/gi, '').trim().length < 6; d++) q = q.parentElement;
+    const label = (q.querySelector('label, legend') || q).innerText.replace(/\\b(yes|no)\\b\\s*$/gi, '').trim().split('\\n')[0];
+    const id = 'aa' + groups.size;
+    n.querySelectorAll('button, [role=button]').forEach(x => { const v = (x.innerText || '').trim().toLowerCase();
+      if (v === 'yes' || v === 'no') x.setAttribute('data-aa-yn', id + '-' + v); });
+    groups.set(n, {id, q: label});
+  }
+  return [...groups.values()];
+}"""
+
+
+def fill_yes_no(page, answers):
+    filled = 0
+    for g in page.evaluate(YES_NO_JS):
+        q = g["q"].replace("*", "").strip().lower()
+        key = next((k for rx, k in FIELD_MAP if re.search(rx, q)), None)
+        val = str(answers.get(key, "")).strip().lower() if key else ""
+        if val in ("yes", "no"):
+            btn = page.locator(f'[data-aa-yn="{g["id"]}-{val}"]').first
+            if btn.count():
+                btn.click()
+                filled += 1
+    return filled
+
+
 RADIO_GROUPS_JS = """() => [...document.querySelectorAll('fieldset, [role=radiogroup], [role=group]')]
   .filter(g => g.querySelector('input[type=radio], input[type=checkbox]'))
   .map(g => {
@@ -201,20 +241,42 @@ def fill_radio_groups(page, answers):
 
 
 def fill_form(page, answers, resume_path, log=print):
-    # 1) resume upload: first file input whose context mentions resume/CV, else first file input
+    # 0) wait for the form to actually render (Ashby/Lever build it with JavaScript)
+    try:
+        page.wait_for_function("document.querySelectorAll('input:not([type=hidden]), textarea').length >= 2", timeout=15000)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 1) resume upload. Some sites have an "Autofill from resume" box AND a Resume field:
+    #    upload to the autofill box first (it pre-fills the form), then to the Resume field.
     files = page.locator("input[type=file]")
-    target = None
+    autofill, resume_field, first = None, None, None
     for i in range(files.count()):
         f = files.nth(i)
-        ctx = f.evaluate("e => (e.closest('div,fieldset,section')||e).innerText.slice(0,200)")
-        if re.search(r"resume|cv", ctx or "", re.I):
-            target = f
-            break
-    target = target or (files.first if files.count() else None)
-    if target:
-        target.set_input_files(resume_path)
-        log("    uploaded resume")
-        page.wait_for_timeout(2500)  # let the ATS parse it
+        info = f.evaluate("""e => { let n = e, near = '';
+            for (let d = 0; d < 6 && n; d++, n = n.parentElement) { near = (n.innerText || '').trim(); if (near.length > 12) break; }
+            const lab = [...(e.labels || [])].map(l => l.innerText).join(' ') || e.getAttribute('aria-label') || '';
+            return {lab, ids: (e.id || '') + ' ' + (e.name || ''), near: near.slice(0, 250)}; }""") or {}
+        lab, ids, near = info.get("lab", ""), info.get("ids", ""), info.get("near", "")
+        first = first or f
+        own = lab + " " + ids          # the field's own label/name beats nearby text
+        if re.search(r"cover", own, re.I):
+            continue
+        if re.search(r"resume|\bcv\b|curriculum", own, re.I) and not re.search(r"autofill|auto-fill|parse", own, re.I):
+            resume_field = resume_field or f
+        elif re.search(r"autofill|auto-fill|parse", own + " " + near, re.I):
+            autofill = autofill or f
+        elif re.search(r"cover", near, re.I) and not re.search(r"resume|\bcv\b", near, re.I):
+            continue
+        elif re.search(r"resume|\bcv\b|curriculum", near, re.I):
+            resume_field = resume_field or f
+    for target in [t for t in (autofill, resume_field or (None if autofill else first)) if t]:
+        try:
+            target.set_input_files(resume_path)
+            log("    uploaded resume")
+            page.wait_for_timeout(3000)  # let the site read it
+        except Exception:  # noqa: BLE001
+            pass
 
     # 2) text/select fields by label
     filled, unfilled_required = 0, []
@@ -248,6 +310,10 @@ def fill_form(page, answers, resume_path, log=print):
                 unfilled_required.append(text[:70])
     try:
         filled += fill_radio_groups(page, answers)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        filled += fill_yes_no(page, answers)
     except Exception:  # noqa: BLE001
         pass
     log(f"    filled {filled} fields; {len(unfilled_required)} required fields need you")

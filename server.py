@@ -453,7 +453,7 @@ upd = {"checked": 0, "current": updater.local_version(), "latest": None, "availa
 
 
 def check_updates(force=False):
-    if not force and time.time() - upd["checked"] < 3600:
+    if not force and time.time() - upd["checked"] < 600:
         return upd
     try:
         upd.update(updater.check(), checked=time.time(), error="")
@@ -764,7 +764,7 @@ def main():
             run_update(open_browser=os.environ.get("AUTOAPPLY_NO_BROWSER") != "1")   # restarts on success
     def periodic_check():
         while True:
-            time.sleep(6 * 3600)
+            time.sleep(15 * 60)
             check_updates(force=True)
     threading.Thread(target=periodic_check, daemon=True).start()
     if load_secrets().get("phone_enabled"):
